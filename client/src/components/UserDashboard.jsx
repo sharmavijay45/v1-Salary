@@ -1,0 +1,465 @@
+import { useState, useEffect } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { getUserAttendance, submitFeedback } from '../api';
+import SalaryBreakdownComponent from './SalaryBreakdownComponent';
+import { motion } from 'framer-motion';
+import {
+  Calendar, Clock, DollarSign, TrendingUp,
+  MessageSquare, Send, User, BarChart3,
+  AlertCircle, CheckCircle, X, Lock
+} from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+
+function UserDashboard() {
+  const [userData, setUserData] = useState(null);
+  const [feedback, setFeedback] = useState('');
+  const [feedbackType, setFeedbackType] = useState('general');
+  const [loading, setLoading] = useState(true);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const userInfo = JSON.parse(localStorage.getItem('user'));
+        console.log('User info from localStorage:', userInfo);
+        setUser(userInfo);
+
+        if (userInfo && userInfo._id) {
+          console.log('Fetching attendance for user ID:', userInfo._id);
+          const data = await getUserAttendance(userInfo._id);
+          console.log('Received attendance data:', data);
+          setUserData(data);
+        } else {
+          console.log('No user ID found in localStorage');
+        }
+      } catch (err) {
+        console.error('Error fetching user data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedback.trim()) {
+      toast.error('Please enter your feedback');
+      return;
+    }
+
+    try {
+      setSubmittingFeedback(true);
+      await submitFeedback({
+        userId: user._id,
+        message: feedback,
+        type: feedbackType,
+        attendanceId: userData?._id
+      });
+      setFeedback('');
+      toast.success('Feedback submitted successfully! Admin will review it soon.', {
+        duration: 4000,
+        position: 'top-center',
+      });
+    } catch (err) {
+      console.error('Error submitting feedback:', err);
+      toast.error('Error submitting feedback. Please try again.', {
+        duration: 4000,
+        position: 'top-center',
+      });
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-100 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center"
+        >
+          <div className="relative">
+            <div className="animate-spin rounded-full h-32 w-32 border-4 border-primary-200 border-t-primary-600 mx-auto"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <User className="w-8 h-8 text-primary-600" />
+            </div>
+          </div>
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="mt-6 text-lg text-secondary-600 font-medium"
+          >
+            Loading your dashboard...
+          </motion.p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Toaster position="top-right" />
+      <div className="min-h-screen bg-gradient-to-br from-primary-50 via-indigo-50 to-purple-50">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white/80 backdrop-blur-lg shadow-large border-b border-white/20"
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center py-6">
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 }}
+              >
+                <h1 className="text-3xl font-bold text-gradient">Welcome, {user?.name}</h1>
+                <p className="text-secondary-600 mt-1">View your attendance and salary information</p>
+              </motion.div>
+              <motion.button
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 }}
+                onClick={() => {
+                  toast.success('Logged out successfully');
+                  setTimeout(() => {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/';
+                  }, 1000);
+                }}
+                className="btn-danger flex items-center space-x-2"
+              >
+                <X className="w-4 h-4" />
+                <span>Logout</span>
+              </motion.button>
+            </div>
+          </div>
+        </motion.div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {(() => {
+            console.log('Rendering condition check:', {
+              userData: !!userData,
+              exposed: userData?.exposed,
+              fullUserData: userData
+            });
+            return userData && userData.exposed;
+          })() ? (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+              className="space-y-8"
+            >
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-primary-100 rounded-xl">
+                      <Calendar className="w-6 h-6 text-primary-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Days Present</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.daysPresent}/{userData.totalWorkingDays}</p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-success-100 rounded-xl">
+                      <Clock className="w-6 h-6 text-success-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Total Hours</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.hoursWorked}h</p>
+                      <p className="text-xs text-secondary-500">of {userData.expectedTotalHours || 208}h expected</p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.55 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-blue-100 rounded-xl">
+                      <Clock className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Avg Hours/Day</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.avgHoursPerDay || 0}h</p>
+                      <p className="text-xs text-secondary-500">₹{userData.dailyWage || 258}/day</p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-warning-100 rounded-xl">
+                      <DollarSign className="w-6 h-6 text-warning-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Salary</p>
+                      <p className="text-2xl font-bold text-secondary-900">₹{userData.adjustedSalary.toLocaleString()}</p>
+                      <p className="text-xs text-secondary-500">{userData.daysPresent} days × ₹{userData.dailyWage || 258}</p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-purple-100 rounded-xl">
+                      <TrendingUp className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Hours %</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.hoursPercentage || userData.salaryPercentage}%</p>
+                      <p className="text-xs text-secondary-500">Attendance: {userData.attendancePercentage}%</p>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+
+            {/* Working Days Information */}
+            {userData.monthStatistics && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+                className="card"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <Calendar className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">Working Days ({userData.monthYear})</h3>
+                      <p className="text-sm text-gray-600">Calendar-based calculation with holidays</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-blue-600">{userData.totalWorkingDays}</p>
+                    <p className="text-sm text-gray-500">Required Days</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-blue-600">{userData.monthStatistics.totalDays}</p>
+                    <p className="text-xs text-gray-600">Total Days</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-green-600">{userData.monthStatistics.workingDays}</p>
+                    <p className="text-xs text-gray-600">Working Days</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-orange-600">{userData.monthStatistics.holidayCount || 0}</p>
+                    <p className="text-xs text-gray-600">Holidays</p>
+                  </div>
+                  <div className="bg-purple-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-purple-600">{userData.monthStatistics.sundays || 0}</p>
+                    <p className="text-xs text-gray-600">Sundays</p>
+                  </div>
+                </div>
+
+                {/* Holidays List for User */}
+                {userData.monthStatistics.holidays && userData.monthStatistics.holidays.length > 0 && (
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Government Holidays This Month:</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {userData.monthStatistics.holidays.map((holiday, index) => (
+                        <div key={index} className="flex justify-between items-center bg-white rounded p-2 text-sm">
+                          <span className="text-gray-700">{holiday.name || holiday}</span>
+                          <span className="text-gray-500 text-xs">
+                            {holiday.date ? new Date(holiday.date).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short'
+                            }) : ''}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* Salary Breakdown */}
+            <div className="card">
+              <h3 className="text-lg font-semibold text-gray-900 mb-6">Salary Breakdown</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Daily Rate</p>
+                  <p className="text-2xl font-bold text-blue-600">₹{userData.dailyWage || 258}</p>
+                </div>
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Days Present</p>
+                  <p className="text-2xl font-bold text-green-600">{userData.daysPresent}</p>
+                </div>
+                <div className="text-center p-4 bg-purple-50 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Total Salary</p>
+                  <p className="text-2xl font-bold text-purple-600">₹{userData.adjustedSalary.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                <div className="flex justify-between items-center text-sm">
+                  <span>Expected Hours ({userData.totalWorkingDays} days × 8h):</span>
+                  <span className="font-medium">{userData.expectedTotalHours || 208}h</span>
+                </div>
+                <div className="flex justify-between items-center text-sm mt-2">
+                  <span>Hours Completion:</span>
+                  <span className="font-medium">{userData.hoursPercentage || userData.salaryPercentage}%</span>
+                </div>
+                <div className="flex justify-between items-center text-sm mt-2">
+                  <span>Days Attendance:</span>
+                  <span className="font-medium">{userData.attendancePercentage}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Enhanced Salary Breakdown Component */}
+            <SalaryBreakdownComponent userData={userData} />
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Hours Worked Overview</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={[userData]}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="hoursWorked" fill="#3B82F6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {userData.attendanceDetails && userData.attendanceDetails.length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Attendance Trend</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={userData.attendanceDetails.slice(-10)}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="hoursWorked" stroke="#10B981" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+              {/* Feedback Section */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.9 }}
+                className="card"
+              >
+                <h3 className="text-lg font-semibold text-secondary-900 mb-4 flex items-center">
+                  <MessageSquare className="w-5 h-5 mr-2 text-primary-600" />
+                  Submit Feedback or Query
+                </h3>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="label">Feedback Type</label>
+                    <select
+                      value={feedbackType}
+                      onChange={(e) => setFeedbackType(e.target.value)}
+                      className="input-field"
+                    >
+                      <option value="general">General Feedback</option>
+                      <option value="salary_dispute">Salary Dispute</option>
+                      <option value="attendance_query">Attendance Query</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">Your Message</label>
+                    <textarea
+                      value={feedback}
+                      onChange={(e) => setFeedback(e.target.value)}
+                      placeholder="Enter your feedback, concerns, or questions about your salary calculation..."
+                      className="input-field"
+                      rows={4}
+                    />
+                  </div>
+
+                  <motion.button
+                    onClick={handleFeedbackSubmit}
+                    disabled={submittingFeedback || !feedback.trim()}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="btn-primary flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submittingFeedback ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span>Submitting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5" />
+                        <span>Submit Feedback</span>
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.3 }}
+              className="card p-12 text-center"
+            >
+              <Lock className="mx-auto h-24 w-24 text-secondary-400 mb-4" />
+              <h3 className="text-lg font-medium text-secondary-900 mb-2">No Data Available</h3>
+              <p className="text-secondary-600">
+                Your attendance and salary data hasn't been made available yet.
+                Please contact your administrator or wait for the data to be processed.
+              </p>
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default UserDashboard;
