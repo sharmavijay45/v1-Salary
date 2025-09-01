@@ -95,7 +95,8 @@ export const calculateSalaryWithDailyWage = (
   monthYear, 
   dailyWage = 258, 
   baseSalary = 8000, 
-  userConfig = {}
+  userConfig = {},
+  holidays = 0
 ) => {
   try {
     // Use calendar service for dynamic calculation
@@ -104,7 +105,8 @@ export const calculateSalaryWithDailyWage = (
       daysPresent, 
       monthYear, 
       userConfig.dailyWage || dailyWage, 
-      userConfig.baseSalary || baseSalary
+      userConfig.baseSalary || baseSalary,
+      holidays
     );
     
     // Add backward compatibility fields for existing code

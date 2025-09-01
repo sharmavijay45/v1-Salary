@@ -318,10 +318,16 @@ class CalendarService {
    * @param {number} baseSalary - Employee's base salary (default: 8000)
    * @returns {Object} Detailed salary calculation
    */
-  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage = 258, baseSalary = 8000) {
+  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage = 258, baseSalary = 8000, holidays = null) {
     try {
       // Get working days info from calendar (include Saturdays, exclude only Sundays)
       const workingDaysInfo = this.getWorkingDaysInMonth(monthYear, false);
+      
+      if (holidays !== null && typeof holidays === 'number') {
+        workingDaysInfo.workingDays -= holidays;
+        workingDaysInfo.holidayCount += holidays;
+      }
+
       const requiredDays = workingDaysInfo.requiredWorkingDays;
       
       // Calculate expected hours (8 hours per working day)
@@ -489,8 +495,8 @@ export default calendarService;
 // Export individual functions for backward compatibility
 export const getWorkingDaysInMonth = (monthYear) => calendarService.getWorkingDaysInMonth(monthYear);
 export const getHolidaysForMonth = (monthYear) => calendarService.getHolidaysForMonth(monthYear);
-export const calculateDynamicSalary = (hoursWorked, daysPresent, monthYear, dailyWage, baseSalary) => 
-  calendarService.calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage, baseSalary);
+export const calculateDynamicSalary = (hoursWorked, daysPresent, monthYear, dailyWage, baseSalary, holidays) => 
+  calendarService.calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage, baseSalary, holidays);
 export const getSundaysInMonth = (monthYear) => calendarService.getSundaysInMonth(monthYear);
 export const isHoliday = (date) => calendarService.isHoliday(date);
 export const isSunday = (date) => calendarService.isSunday(date);

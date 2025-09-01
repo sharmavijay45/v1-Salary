@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { uploadAttendance, getAttendance, exposeAttendance, adjustSalary, getFeedbacks, downloadReport, exposeAllAttendance, migrateUsers, syncUser, respondToFeedback, updateFeedbackStatus, getDuplicatesSummary, removeDuplicates, getCalendarWorkingDays, getHolidaysForMonth, getCurrentWorkingDays } from '../api';
 import SalaryExplanationModal from './SalaryExplanationModal';
+import HolidayInputModal from './HolidayInputModal';
+import HolidayManager from './HolidayManager';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload, Users, BarChart3, MessageSquare, Settings,
@@ -40,9 +42,22 @@ function AdminDashboard() {
   });
   const [workingDaysInfo, setWorkingDaysInfo] = useState(null);
   const [holidaysThisMonth, setHolidaysThisMonth] = useState([]);
+  const [showHolidayModal, setShowHolidayModal] = useState(false); // Keep for HolidayManager
+  // New state for file uploads and month selection
+  const [excelFile, setExcelFile] = useState(null);
+  const [attendanceFile, setAttendanceFile] = useState(null);
+  const [selectedMonthYear, setSelectedMonthYear] = useState('');
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [totalHolidays, setTotalHolidays] = useState(0);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   useEffect(() => {
     fetchData();
+    // Set default monthYear to current month
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    setSelectedMonthYear(`${year}-${month}`);
   }, []);
 
 
@@ -102,12 +117,25 @@ function AdminDashboard() {
     }
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // Handle holiday input submission
+  const handleHolidaySubmit = async (holidays, monthYear) => {
+    setTotalHolidays(holidays);
+    setSelectedMonthYear(monthYear);
+    setShowUploadModal(true);
+  };
+
+  // New function to handle file processing
+  const handleProcessFiles = async () => {
+    if (!excelFile || !attendanceFile || !selectedMonthYear) {
+      toast.error('Please select both Excel and Attendance files, and a month/year.');
+      return;
+    }
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('excelFile', excelFile);
+    formData.append('attendanceFile', attendanceFile);
+    formData.append('monthYear', selectedMonthYear);
+    formData.append('totalHolidays', totalHolidays);
 
     try {
       setUploading(true);
@@ -115,10 +143,14 @@ function AdminDashboard() {
       setInsights(response.insights || '');
       setCurrentMonthYear(response.monthYear || '');
       await fetchData();
-      alert('File uploaded successfully!');
+      toast.success('Files uploaded and processed successfully!');
+      setShowUploadModal(false);
+      setExcelFile(null);
+      setAttendanceFile(null);
+      setTotalHolidays(0);
     } catch (err) {
       console.error('Upload error:', err);
-      alert('Error uploading file: ' + (err.response?.data?.message || err.message));
+      toast.error('Error uploading files: ' + (err.response?.data?.message || err.message));
     } finally {
       setUploading(false);
     }
@@ -616,23 +648,81 @@ function AdminDashboard() {
                   <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <div className="mt-4">
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <span className="mt-2 block text-sm font-medium text-gray-900">
-                      {uploading ? 'Uploading...' : 'Upload Attendance File'}
-                    </span>
+                  {/* New File Inputs and Month Selector */}
+                  <div className="mb-4">
+                    <label htmlFor="excel-file-upload" className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload Excel File (Detailed Attendance)
+                    </label>
                     <input
-                      id="file-upload"
-                      name="file-upload"
+                      id="excel-file-upload"
+                      name="excel-file-upload"
                       type="file"
-                      accept=".xlsx,.xls,.csv"
-                      className="sr-only"
-                      onChange={handleFileUpload}
+                      accept=".xlsx,.xls,.csv" // Allow CSV for excelProcessor.js
+                      className="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
+                      onChange={(e) => setExcelFile(e.target.files[0])}
                       disabled={uploading}
                     />
-                    <span className="mt-1 block text-sm text-gray-600">
-                      Select an Excel (.xlsx, .xls) or CSV (.csv) file with attendance data
-                    </span>
-                  </label>
+                    {excelFile && <p className="mt-1 text-sm text-gray-500">Selected: {excelFile.name}</p>}
+                  </div>
+
+                  <div className="mb-4">
+                    <label htmlFor="attendance-file-upload" className="block text-sm font-medium text-gray-700 mb-1">
+                      Upload Manual Attendance File (Daily Present Data)
+                    </label>
+                    <input
+                      id="attendance-file-upload"
+                      name="attendance-file-upload"
+                      type="file"
+                      accept=".csv,.pdf" // Now accepts both CSV and PDF files
+                      className="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
+                      onChange={(e) => setAttendanceFile(e.target.files[0])}
+                      disabled={uploading}
+                    />
+                    {attendanceFile && (
+                      <p className="mt-1 text-sm text-gray-500">
+                        Selected: {attendanceFile.name}
+                        <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+                          {attendanceFile.name.toLowerCase().endsWith('.pdf') ? 'PDF (AI Processing)' : 'CSV'}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mb-4">
+                    <label htmlFor="month-year-input" className="block text-sm font-medium text-gray-700 mb-1">
+                      Select Month and Year
+                    </label>
+                    <input
+                      id="month-year-input"
+                      name="month-year-input"
+                      type="month" // HTML5 input type for month/year picker
+                      value={selectedMonthYear}
+                      onChange={(e) => setSelectedMonthYear(e.target.value)}
+                      className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      disabled={uploading}
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => setShowHolidayModal(true)}
+                    disabled={uploading || !excelFile || !attendanceFile}
+                    className="btn-primary w-full py-3 flex items-center justify-center"
+                  >
+                    {uploading ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Processing Files...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 mr-2" />
+                        Configure & Process Attendance Data
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -788,10 +878,10 @@ function AdminDashboard() {
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actual Days</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Calc Days (÷8)</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cal Days (÷24)</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours Worked</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present Days</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Working Days</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Days</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Work Hours</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Hours/Day</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salary</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -800,7 +890,7 @@ function AdminDashboard() {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {attendanceData.map((user) => (
-                      <tr key={user._id} className="hover:bg-gray-50">
+                      <tr key={user._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { setSelectedEmployee(user); setShowSalaryModal(true); }}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <input
                             type="checkbox"
@@ -832,30 +922,25 @@ function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.dept}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.actualDaysPresent || user.daysPresent}/{user.totalWorkingDays}
+                          <div className="font-medium">{user.daysPresent}</div>
                           <div className="text-xs text-gray-500">
-                            From Excel file
+                            Present days
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.calculatedWorkingDays || user.calculatedDaysPresent || Math.round((user.hoursWorked / (user.hoursToSalaryDivisor || 8)) * 100) / 100}
+                          <div className="font-medium">{user.totalWorkingDays}</div>
                           <div className="text-xs text-gray-500">
-                            {user.hoursWorked}h ÷ {user.hoursToSalaryDivisor || 8}h (salary)
+                            (with holidays)
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.calculatedCalendarDays || Math.round((user.hoursWorked / (user.hoursToDaysDivisor || 24)) * 100) / 100}
-                          <div className="text-xs text-gray-500">
-                            {user.hoursWorked}h ÷ {user.hoursToDaysDivisor || 24}h (calendar)
-                          </div>
+                          {user.monthStatistics?.totalDays}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {user.hoursWorked}h
-                          <div className="text-xs text-gray-500">of {user.expectedTotalHours || 208}h</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {user.avgHoursPerDay || 0}h
-                          <div className="text-xs text-gray-500">₹{user.dailyWage || 258}/day</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           ₹{user.adjustedSalary.toLocaleString()}
@@ -876,16 +961,7 @@ function AdminDashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                          <button
-                            onClick={() => {
-                              setSelectedEmployee(user);
-                              setShowSalaryModal(true);
-                            }}
-                            className="text-purple-600 hover:text-purple-900"
-                            title="View salary calculation details"
-                          >
-                            View Calc
-                          </button>
+                          
                           <button
                             onClick={() => {
                               setAdjustingUser(user);
@@ -1146,6 +1222,85 @@ function AdminDashboard() {
         employee={selectedEmployee}
         monthYear={currentMonthYear}
       />
+
+      {/* Holiday Input Modal */}
+      <HolidayInputModal
+        isOpen={showHolidayModal}
+        onClose={() => setShowHolidayModal(false)}
+        onSubmit={handleHolidaySubmit}
+      />
+
+      {/* Upload Confirmation Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full"
+          >
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-4 rounded-t-xl">
+              <h2 className="text-xl font-bold">Confirm Upload Configuration</h2>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">Upload Summary</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Excel File:</span>
+                    <span className="font-medium">{excelFile?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Attendance File:</span>
+                    <span className="font-medium">{attendanceFile?.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Month/Year:</span>
+                    <span className="font-medium">{selectedMonthYear}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Holidays:</span>
+                    <span className="font-medium">{totalHolidays}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Calculator className="w-4 h-4 text-blue-600" />
+                  <span className="text-sm font-medium text-blue-900">Calculation Preview</span>
+                </div>
+                <p className="text-xs text-blue-700 mb-2">
+                  Present days from files will be combined with {totalHolidays} holidays for salary calculation.
+                  Daily wage: ₹258 × (Present Days + Holidays)
+                </p>
+                {attendanceFile?.name.toLowerCase().endsWith('.pdf') && (
+                  <div className="mt-2 p-2 bg-blue-100 rounded text-xs text-blue-800">
+                    <span className="font-medium">🤖 AI Processing:</span> PDF will be analyzed using Groq AI to extract attendance data automatically.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-gray-200 px-6 py-4 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleProcessFiles}
+                disabled={uploading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {uploading ? 'Processing...' : 'Confirm & Upload'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
       </div>
     </>
   );

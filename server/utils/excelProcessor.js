@@ -12,7 +12,7 @@ import {
 import calendarService from './calendarService.js';
 import User from '../models/User.js';
 
-export const processAttendanceExcel = async (filePath) => {
+export const processAttendanceExcel = async (filePath, holidays) => {
   try {
     console.log('Processing Excel file:', filePath);
 
@@ -309,6 +309,9 @@ export const processAttendanceExcel = async (filePath) => {
       
       // Try to fetch user configuration from database
       let userConfig = {};
+      let userBaseSalary = parseInt(process.env.DEFAULT_SALARY) || 8000;
+      let userDailyWage = parseInt(process.env.DAILY_WAGE) || 258;
+      
       try {
         const user = await User.findOne({
           $or: [
@@ -318,17 +321,21 @@ export const processAttendanceExcel = async (filePath) => {
         });
         
         if (user) {
+          // Use individual base salary from database
+          userBaseSalary = user.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000;
+          userDailyWage = user.dailyWage || parseInt(process.env.DAILY_WAGE) || 258;
+          
           userConfig = {
-            baseSalary: user.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000,
-            dailyWage: user.dailyWage || parseInt(process.env.DAILY_WAGE) || 258,
+            baseSalary: userBaseSalary,
+            dailyWage: userDailyWage,
             salaryType: user.salaryType || 'daily_wage',
             salaryCalculationMethod: user.salaryCalculationMethod || 'daily_wage',
             expectedWorkingHours: user.expectedWorkingHours || 8,
             overrideSettings: user.overrideSettings || {}
           };
-          console.log(`Found user config for ${employee.name}:`, userConfig);
+          console.log(`Found user config for ${employee.name}: Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage}`);
         } else {
-          console.log(`No user config found for ${employee.name}, using defaults`);
+          console.log(`No user config found for ${employee.name}, using defaults: Base Salary: ₹${userBaseSalary}`);
         }
       } catch (error) {
         console.error(`Error fetching user config for ${employee.name}:`, error);
@@ -357,7 +364,8 @@ export const processAttendanceExcel = async (filePath) => {
         monthYear, 
         dailyWage,
         baseSalary,
-        userConfig
+        userConfig,
+        holidays
       );
 
       // Get enhanced month statistics
@@ -440,6 +448,18 @@ export const processAttendanceExcel = async (filePath) => {
       });
     }
     
+    for (const employee of processedEmployees) {
+      if (holidays && typeof holidays === 'number') {
+        const monthYear = employee.monthYear;
+        const totalDaysInMonth = moment(monthYear, 'YYYY-MM').daysInMonth();
+        const newDaysPresent = employee.daysPresent + holidays;
+        
+        employee.daysPresent = newDaysPresent;
+        employee.calculatedSalary = (newDaysPresent / totalDaysInMonth) * employee.baseSalary;
+        employee.adjustedSalary = employee.calculatedSalary;
+      }
+    }
+
     return processedEmployees;
   } catch (error) {
     console.error('Excel processing error:', error);
@@ -662,7 +682,7 @@ export const generateExcelReport = (attendanceData) => {
 };
 
 // CSV Processing Function
-export const processAttendanceCSV = async (filePath) => {
+export const processAttendanceCSV = async (filePath, holidays) => {
   return new Promise((resolve, reject) => {
     try {
       console.log('Processing CSV file:', filePath);
@@ -893,7 +913,8 @@ export const processAttendanceCSV = async (filePath) => {
                 monthYear, 
                 dailyWage,
                 baseSalary,
-                userConfig
+                userConfig,
+                holidays
               );
 
               // Get enhanced month statistics
@@ -974,6 +995,18 @@ export const processAttendanceCSV = async (filePath) => {
                   calculationMethod: userConfig.salaryCalculationMethod || 'daily_wage'
                 }
               });
+            }
+
+            for (const employee of processedEmployees) {
+              if (holidays && typeof holidays === 'number') {
+                const monthYear = employee.monthYear;
+                const totalDaysInMonth = moment(monthYear, 'YYYY-MM').daysInMonth();
+                const newDaysPresent = employee.daysPresent + holidays;
+                
+                employee.daysPresent = newDaysPresent;
+                employee.calculatedSalary = (newDaysPresent / totalDaysInMonth) * employee.baseSalary;
+                employee.adjustedSalary = employee.calculatedSalary;
+              }
             }
 
             console.log(`Successfully processed ${processedEmployees.length} employees from CSV`);

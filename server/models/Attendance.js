@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 const attendanceSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   employeeId: { type: String, required: true },
+  userName: { type: String }, // Store user name for better matching
   name: { type: String, required: true },
   dept: { type: String, required: true },
   daysPresent: { type: Number, required: true, default: 0 },
@@ -28,6 +29,8 @@ const attendanceSchema = new mongoose.Schema({
   }],
   monthYear: { type: String, required: true }, // Format: "2025-01"
   exposed: { type: Boolean, default: false },
+  dataSource: { type: String, enum: ['pdf', 'excel', 'unknown'], default: 'unknown' }, // Track data source
+  manualAttendanceSource: { type: String, enum: ['pdf', 'excel'], default: 'excel' }, // Track manual attendance source
   aiInsights: { type: String },
   // Working days related fields
   sundayAttendance: { type: Number, default: 0 }, // Number of Sundays marked as present

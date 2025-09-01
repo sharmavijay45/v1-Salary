@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { getUserAttendance, submitFeedback } from '../api';
+import { getUserAttendance, submitFeedback, getFeedbacks } from '../api';
 import SalaryBreakdownComponent from './SalaryBreakdownComponent';
+import AttendanceCalendar from './AttendanceCalendar';
 import { motion } from 'framer-motion';
 import {
   Calendar, Clock, DollarSign, TrendingUp,
   MessageSquare, Send, User, BarChart3,
-  AlertCircle, CheckCircle, X, Lock
+  AlertCircle, CheckCircle, X, Lock,
+  MessageCircle, Eye
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -17,6 +19,8 @@ function UserDashboard() {
   const [loading, setLoading] = useState(true);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [user, setUser] = useState(null);
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [activeTab, setActiveTab] = useState('salary');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,6 +34,10 @@ function UserDashboard() {
           const data = await getUserAttendance(userInfo._id);
           console.log('Received attendance data:', data);
           setUserData(data);
+          
+          // Fetch user's feedback to show admin responses
+          const feedbackData = await getFeedbacks();
+          setFeedbacks(feedbackData);
         } else {
           console.log('No user ID found in localStorage');
         }
@@ -312,72 +320,184 @@ function UserDashboard() {
               </motion.div>
             )}
 
-            {/* Salary Breakdown */}
-            <div className="card">
-              <h3 className="text-lg font-semibold text-gray-900 mb-6">Salary Breakdown</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center p-4 bg-blue-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Daily Rate</p>
-                  <p className="text-2xl font-bold text-blue-600">₹{userData.dailyWage || 258}</p>
+              {/* Main Content */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Column - Salary Breakdown */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="card">
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-xl font-bold text-secondary-900">Salary Breakdown</h2>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setActiveTab('salary')}
+                          className={`px-4 py-2 rounded-lg font-medium ${
+                            activeTab === 'salary' 
+                              ? 'bg-primary-100 text-primary-700' 
+                              : 'text-secondary-600 hover:bg-secondary-100'
+                          }`}
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => setActiveTab('calendar')}
+                          className={`px-4 py-2 rounded-lg font-medium ${
+                            activeTab === 'calendar' 
+                              ? 'bg-primary-100 text-primary-700' 
+                              : 'text-secondary-600 hover:bg-secondary-100'
+                          }`}
+                        >
+                          Calendar
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {activeTab === 'salary' ? (
+                      <SalaryBreakdownComponent userData={userData} isVisible={true} />
+                    ) : (
+                      <AttendanceCalendar 
+                        attendanceData={userData} 
+                        workingDaysInfo={userData.workingDaysInfo}
+                        monthYear={userData.monthYear}
+                      />
+                    )}
+                  </div>
                 </div>
-                <div className="text-center p-4 bg-green-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Days Present</p>
-                  <p className="text-2xl font-bold text-green-600">{userData.daysPresent}</p>
-                </div>
-                <div className="text-center p-4 bg-purple-50 rounded-lg">
-                  <p className="text-sm text-gray-600 mb-1">Total Salary</p>
-                  <p className="text-2xl font-bold text-purple-600">₹{userData.adjustedSalary.toLocaleString()}</p>
+
+                {/* Right Column - Feedback */}
+                <div className="space-y-6">
+                  {/* Submit Feedback */}
+                  <div className="card">
+                    <h3 className="text-lg font-semibold text-secondary-900 mb-4 flex items-center">
+                      <MessageSquare className="w-5 h-5 mr-2 text-primary-600" />
+                      Submit Feedback
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="label">Feedback Type</label>
+                        <select
+                          value={feedbackType}
+                          onChange={(e) => setFeedbackType(e.target.value)}
+                          className="input-field w-full"
+                        >
+                          <option value="general">General Feedback</option>
+                          <option value="salary_dispute">Salary Dispute</option>
+                          <option value="attendance_query">Attendance Query</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Your Message</label>
+                        <textarea
+                          value={feedback}
+                          onChange={(e) => setFeedback(e.target.value)}
+                          rows={4}
+                          className="input-field w-full"
+                          placeholder="Share your thoughts, concerns, or suggestions..."
+                        />
+                      </div>
+                      <button
+                        onClick={handleFeedbackSubmit}
+                        disabled={submittingFeedback || !feedback.trim()}
+                        className="w-full btn-primary flex items-center justify-center"
+                      >
+                        {submittingFeedback ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Submitting...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4 mr-2" />
+                            Submit Feedback
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Admin Responses */}
+                  {feedbacks && feedbacks.length > 0 && (
+                    <div className="card">
+                      <h3 className="text-lg font-semibold text-secondary-900 mb-4 flex items-center">
+                        <Eye className="w-5 h-5 mr-2 text-green-600" />
+                        Admin Responses
+                      </h3>
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {feedbacks
+                          .filter(fb => fb.adminResponse)
+                          .map((feedback) => (
+                            <div key={feedback._id} className="border border-gray-200 rounded-lg p-4">
+                              <div className="flex items-start justify-between mb-2">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  feedback.type === 'salary_dispute' 
+                                    ? 'bg-red-100 text-red-800' 
+                                    : feedback.type === 'attendance_query' 
+                                      ? 'bg-blue-100 text-blue-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {feedback.type.replace('_', ' ').toUpperCase()}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {new Date(feedback.createdAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-700 mb-3">{feedback.message}</p>
+                              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                                <div className="flex items-center text-green-800 mb-1">
+                                  <MessageCircle className="w-4 h-4 mr-1" />
+                                  <span className="font-medium text-sm">Admin Response</span>
+                                </div>
+                                <p className="text-sm text-green-700">{feedback.adminResponse}</p>
+                                <div className="mt-2 text-xs text-green-600">
+                                  Responded by: {feedback.respondedBy || 'Admin'} on{' '}
+                                  {feedback.respondedAt 
+                                    ? new Date(feedback.respondedAt).toLocaleString() 
+                                    : 'N/A'}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        
+                        {feedbacks.filter(fb => fb.adminResponse).length === 0 && (
+                          <p className="text-gray-500 text-center py-4">
+                            No responses from admin yet. Your feedback is pending review.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <div className="flex justify-between items-center text-sm">
-                  <span>Expected Hours ({userData.totalWorkingDays} days × 8h):</span>
-                  <span className="font-medium">{userData.expectedTotalHours || 208}h</span>
-                </div>
-                <div className="flex justify-between items-center text-sm mt-2">
-                  <span>Hours Completion:</span>
-                  <span className="font-medium">{userData.hoursPercentage || userData.salaryPercentage}%</span>
-                </div>
-                <div className="flex justify-between items-center text-sm mt-2">
-                  <span>Days Attendance:</span>
-                  <span className="font-medium">{userData.attendancePercentage}%</span>
-                </div>
-              </div>
-            </div>
 
-            {/* Enhanced Salary Breakdown Component */}
-            <SalaryBreakdownComponent userData={userData} />
-
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Hours Worked Overview</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={[userData]}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="hoursWorked" fill="#3B82F6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {userData.attendanceDetails && userData.attendanceDetails.length > 0 && (
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Attendance Trend</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Hours Worked Overview</h3>
                   <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={userData.attendanceDetails.slice(-10)}>
+                    <BarChart data={[userData]}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
+                      <XAxis dataKey="name" />
                       <YAxis />
                       <Tooltip />
-                      <Line type="monotone" dataKey="hoursWorked" stroke="#10B981" strokeWidth={2} />
-                    </LineChart>
+                      <Bar dataKey="hoursWorked" fill="#3B82F6" />
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
-              )}
-            </div>
+
+                {userData.attendanceDetails && userData.attendanceDetails.length > 0 && (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Daily Attendance Trend</h3>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={userData.attendanceDetails.slice(-10)}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="hoursWorked" stroke="#10B981" strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
 
               {/* Feedback Section */}
               <motion.div

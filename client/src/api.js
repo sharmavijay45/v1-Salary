@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-axios.defaults.baseURL = 'http://localhost:5003/api';
+axios.defaults.baseURL = 'http://localhost:5000/api';
 
 export const login = async (credentials) => {
   const response = await axios.post('/auth/login', credentials);
@@ -243,6 +243,38 @@ export const updateCalendarSettings = async (settings) => {
 
 export const clearCalendarCache = async () => {
   const response = await axios.post('/calendar/clear-cache', {}, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+// Holiday Management APIs
+export const addHolidays = async (holidays, monthYear) => {
+  const response = await axios.post('/attendance/holidays', 
+    { holidays, monthYear },
+    {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    }
+  );
+  return response.data;
+};
+
+export const getHolidays = async (monthYear) => {
+  const response = await axios.get(`/attendance/holidays/${monthYear}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const updateHoliday = async (holidayId, holidayData) => {
+  const response = await axios.put(`/attendance/holidays/${holidayId}`, holidayData, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const deleteHoliday = async (holidayId) => {
+  const response = await axios.delete(`/attendance/holidays/${holidayId}`, {
     headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
   });
   return response.data;
