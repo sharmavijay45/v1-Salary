@@ -9,8 +9,9 @@ import auth from '../middleware/auth.js';
 import { getGrokInsights } from '../utils/groq.js';
 import { processAttendanceExcel, processAttendanceCSV, generateExcelReport } from '../utils/excelProcessor.js';
 import { processManualAttendance } from '../utils/attendanceProcessor.js';
-import { getMonthStatistics, getWorkingDaysInMonth, getSundaysInMonth, calculateSalaryWithDailyWage } from '../utils/workingDays.js';
+import { getMonthStatistics, getWorkingDaysInMonth, getSundaysInMonth } from '../utils/workingDays.js';
 import { deduplicateAttendanceRecords, getDuplicateUsersSummary } from '../utils/deduplicateUsers.js';
+import calendarService from '../utils/calendarService.js';
 import { Parser } from 'json2csv';
 import path from 'path';
 import fs from 'fs';
@@ -52,220 +53,187 @@ if (!fs.existsSync(uploadPath)) {
 const upload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      console.log('Multer destination called, upload path:', uploadPath);
       cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
       const filename = `${Date.now()}-${file.originalname}`;
-      console.log('Multer filename called, filename:', filename);
       cb(null, filename);
     }
   }),
   limits: { fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10485760 },
   fileFilter: (req, file, cb) => {
-    console.log('Multer fileFilter called, file:', file);
-    // Allow Excel, CSV, and PDF files
-    const allowedTypes = [
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'text/csv',
-      'application/pdf'
-    ];
-
-    const allowedExtensions = ['.xlsx', '.xls', '.csv', '.pdf'];
-
-    const fileExtension = path.extname(file.originalname).toLowerCase();
-
-    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`Invalid file type. Allowed: Excel (.xlsx, .xls), CSV (.csv), PDF (.pdf). Got: ${file.mimetype}`), false);
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (file.fieldname === 'attendanceFile') {
+      // manual attendance must be CSV
+      const ok = ext === '.csv' || file.mimetype === 'text/csv';
+      return ok ? cb(null, true) : cb(new Error('attendanceFile must be CSV (.csv)'), false);
     }
+    if (file.fieldname === 'excelFile') {
+      const ok = ['.xlsx', '.xls', '.csv'].includes(ext) || [
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv'
+      ].includes(file.mimetype);
+      return ok ? cb(null, true) : cb(new Error('excelFile must be Excel (.xlsx/.xls) or CSV (.csv)'), false);
+    }
+    return cb(new Error('Unknown upload field'), false);
   }
 });
 
+// File upload route
 router.post('/upload', auth, upload.fields([{ name: 'excelFile', maxCount: 1 }, { name: 'attendanceFile', maxCount: 1 }]), async (req, res) => {
   try {
-    console.log('Upload route called');
     if (!req.files || !req.files.excelFile || !req.files.attendanceFile) {
       return res.status(400).json({ message: 'Both excel and attendance files are required' });
     }
-
-    const excelFile = req.files.excelFile[0];
-    const attendanceFile = req.files.attendanceFile[0];
-
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
+    const excelFile = req.files.excelFile[0];
+    const attendanceFile = req.files.attendanceFile[0];
     const { monthYear, totalHolidays } = req.body;
 
-    // Use provided totalHolidays or fetch from database
-    let numberOfHolidays = totalHolidays || 0;
+    // Holidays used for salary enhancement
+    let numberOfHolidays = Number(totalHolidays || 0);
     if (!totalHolidays) {
-      // Fallback to database holidays if not provided
-      const holidaysFromDb = await Holiday.find({ monthYear: monthYear, isActive: true });
+      const holidaysFromDb = await Holiday.find({ monthYear, isActive: true });
       numberOfHolidays = holidaysFromDb.length;
-      console.log(`Found ${numberOfHolidays} active holidays for ${monthYear} from database`);
-    } else {
-      console.log(`Using provided total holidays: ${numberOfHolidays} for ${monthYear}`);
     }
 
-    // Process excel file for detailed attendance and hours worked
-    console.log('Processing Excel file...');
-    const excelData = await processAttendanceExcel(excelFile.path, numberOfHolidays);
-    console.log('Excel data processed:', excelData?.length || 0, 'employees');
-    console.log('Excel data type:', typeof excelData);
-    console.log('Excel data sample:', excelData?.slice(0, 2));
+    // Parse biometric (excelFile)
+    const excelExt = path.extname(excelFile.originalname).toLowerCase();
+    let excelData = [];
+    if (excelExt === '.csv') {
+      excelData = await processAttendanceCSV(excelFile.path, numberOfHolidays);
+    } else {
+      excelData = await processAttendanceExcel(excelFile.path, numberOfHolidays);
+    }
 
-    // Process attendance file for present days (manual override/supplement)
-    console.log('Processing attendance file:', attendanceFile.path);
-    const attendanceData = await processManualAttendance(attendanceFile.path);
-    console.log('Attendance file processed. Found employees:', Object.keys(attendanceData).length);
-    console.log('All PDF employee names:', Object.keys(attendanceData));
-    console.log('Sample PDF data for first employee:', attendanceData[Object.keys(attendanceData)[0]]);
+    // Parse manual (attendanceFile CSV)
+    const manualData = await processManualAttendance(attendanceFile.path);
 
-    // Clear existing attendance data for the current month
-    console.log('Deleting existing attendance data for month:', monthYear);
-    await Attendance.deleteMany({ monthYear: monthYear });
+    // Replace existing attendance for month
+    await Attendance.deleteMany({ monthYear });
 
     const attendanceRecords = [];
-    // Ensure excelData is an array
-    const excelDataArray = Array.isArray(excelData) ? excelData : [];
-    console.log('Excel data type:', typeof excelData, 'Is array:', Array.isArray(excelData), 'Length:', excelDataArray.length);
+    const arr = Array.isArray(excelData) ? excelData : [];
 
-    for (const empData of excelDataArray) {
-        const employeeId = empData.employeeId;
-        const employeeName = empData.name?.toLowerCase().trim();
-        console.log(`Processing Excel employee: "${empData.name}" (ID: ${employeeId}) -> normalized: "${employeeName}"`);
+    for (const empData of arr) {
+      const employeeId = empData.employeeId;
+      const employeeName = (empData.name || '').toString();
+      const keyName = employeeName.toLowerCase().trim();
 
-        // Try to find manual attendance by employeeId first, then by name
-        let manualAttendance = attendanceData[employeeId];
-        if (!manualAttendance && employeeName) {
-            // Look for attendance data by employee name (for PDF files)
-            manualAttendance = attendanceData[employeeName];
-
-            // If not found, try normalized name matching
-            if (!manualAttendance) {
-                const normalizedExcelName = employeeName.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-                console.log(`Looking for PDF match for Excel name: "${employeeName}" (normalized: "${normalizedExcelName}")`);
-
-                for (const [pdfKey, pdfData] of Object.entries(attendanceData)) {
-                    const normalizedPdfName = pdfKey.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-                    console.log(`  Comparing with PDF name: "${pdfKey}" (normalized: "${normalizedPdfName}")`);
-
-                    // Check various matching criteria
-                    const exactMatch = normalizedPdfName === normalizedExcelName;
-                    const containsMatch = normalizedPdfName.includes(normalizedExcelName) || normalizedExcelName.includes(normalizedPdfName);
-                    const levenshteinDistance = getLevenshteinDistance(normalizedExcelName, normalizedPdfName);
-                    const similarMatch = levenshteinDistance <= 2 && Math.min(normalizedExcelName.length, normalizedPdfName.length) > 3;
-
-                    if (exactMatch || containsMatch || similarMatch) {
-                        manualAttendance = pdfData;
-                        console.log(`✅ Found PDF match for ${employeeName} -> ${pdfKey} (${exactMatch ? 'exact' : containsMatch ? 'contains' : 'similar'})`);
-                        break;
-                    }
-                }
-
-                if (!manualAttendance) {
-                    console.log(`❌ No PDF match found for ${employeeName}`);
-                }
+      // Find manual attendance by employeeId or by normalized name
+      let manualAttendance = manualData[employeeId];
+      if (!manualAttendance && keyName) {
+        manualAttendance = manualData[keyName];
+        if (!manualAttendance) {
+          const normalizedExcelName = keyName.replace(/[^a-z0-9]/g, '');
+          for (const [k, v] of Object.entries(manualData)) {
+            const normalizedK = k.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+            const lev = getLevenshteinDistance(normalizedExcelName, normalizedK);
+            const contains = normalizedK.includes(normalizedExcelName) || normalizedExcelName.includes(normalizedK);
+            if (normalizedExcelName && (normalizedExcelName === normalizedK || contains || lev <= 2)) {
+              manualAttendance = v;
+              break;
             }
+          }
         }
+      }
 
-        // PRIORITY: Use PDF for present days and attendance details, Excel for hours/salary
-        let presentDays = empData.daysPresent; // Default from Excel
-        let attendanceDetails = empData.attendanceDetails || [];
-        let hoursWorked = empData.hoursWorked || 0;
-        let dataSource = 'excel';
+      // Merge: manual provides present days & attendance details; excel provides hours
+      let presentDays = empData.daysPresent || 0;
+      let attendanceDetails = empData.attendanceDetails || [];
+      let hoursWorked = empData.hoursWorked || 0;
 
-        if (manualAttendance) {
-            // PDF takes priority for present days and attendance details
-            presentDays = manualAttendance.presentDays; // Use PDF present days
-            attendanceDetails = manualAttendance.attendanceDetails || attendanceDetails; // Use PDF attendance details
-            dataSource = 'pdf';
-            console.log(`Using PDF data for ${employeeName}: ${presentDays} present days`);
-        } else {
-            console.log(`Using Excel data for ${employeeName}: ${presentDays} present days`);
+      if (manualAttendance) {
+        presentDays = manualAttendance.presentDays || presentDays;
+        if (Array.isArray(manualAttendance.attendanceDetails)) {
+          attendanceDetails = manualAttendance.attendanceDetails;
         }
+        // If manual provided totalHours and excel hours are missing, we could use it (optional)
+        if (!hoursWorked && typeof manualAttendance.totalHours === 'number') {
+          hoursWorked = manualAttendance.totalHours;
+        }
+      }
 
-        // Add holidays to the present days for salary calculation
-        let payableDays = presentDays + numberOfHolidays;
+      // Compute holiday-enhanced metrics
+      const payableDays = presentDays + numberOfHolidays;
+      const hoursWithHolidays = hoursWorked + (numberOfHolidays * 8);
+      const effectiveDaysWithHolidays = Math.round(((hoursWorked / 8) + numberOfHolidays) * 100) / 100;
 
-        const user = await User.findOne({ employeeId: employeeId });
-        const userDailyWage = user ? (user.dailyWage || 258) : 258;
-        const calculatedSalary = payableDays * userDailyWage;
+      // Link to a User by employeeId first, then by exact name (case-insensitive)
+      let user = await User.findOne({ employeeId, isActive: { $ne: false } });
+      if (!user && employeeName) {
+        const escaped = employeeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        user = await User.findOne({ name: new RegExp(`^${escaped}$`, 'i'), isActive: { $ne: false } });
+      }
 
-        // Ensure we have a valid userId - use employeeId as fallback if user not found
-        const finalUserId = user ? user._id.toString() : employeeId;
+      // Use user's baseSalary from database, fallback to default
+      const userBaseSalary = user ? (user.baseSalary || 8000) : 8000;
+      const userDailyWage = user ? (user.dailyWage || Math.round(userBaseSalary / 26)) : Math.round(userBaseSalary / 26);
 
-        attendanceRecords.push({
-            ...empData, // Keep all detailed attendance from excelData
-            userId: finalUserId, // Always provide a valid userId
-            employeeId: employeeId, // Keep employeeId for reference
-            userName: user ? user.name : empData.name, // Store user name for matching
-            daysPresent: presentDays, // Present days from PDF (priority) or Excel
-            totalWorkingDays: payableDays, // Days used for salary calculation (base + holidays)
-            calculatedSalary: calculatedSalary,
-            adjustedSalary: calculatedSalary, // Initially adjusted salary is same as calculated
-            monthYear: monthYear,
-            baseSalary: user ? (user.baseSalary || 8000) : 8000,
-            dailyWage: userDailyWage,
-            hoursWorked: hoursWorked, // Hours from Excel (for salary calculations)
-            attendanceDetails: attendanceDetails, // Attendance details from PDF (priority) or Excel
-            dataSource: dataSource, // Track which file provided the present days
-            manualAttendanceSource: manualAttendance ? 'pdf' : 'excel'
-        });
+      // Two salary methods with 26-day cap
+      const cappedPayableDays = Math.min(payableDays, 26);
+      const cappedEffectiveDays = Math.min(effectiveDaysWithHolidays, 26);
+      const dayWiseSalary = Math.round(cappedPayableDays * userDailyWage);
+      const proportionalSalary = Math.round(cappedEffectiveDays * userDailyWage);
+
+      // Use day-wise method as primary calculation for consistency
+      const calculatedSalary = dayWiseSalary;
+
+      const finalUserId = user ? user._id.toString() : (employeeId || employeeName);
+
+      attendanceRecords.push({
+        ...empData,
+        userId: finalUserId,
+        employeeId: employeeId,
+        userName: user ? user.name : employeeName,
+        daysPresent: presentDays,
+        totalWorkingDays: payableDays,
+        calculatedSalary,
+        adjustedSalary: calculatedSalary,
+        payableDays,
+        hoursWithHolidays,
+        effectiveDaysWithHolidays,
+        dayWiseSalary,
+        proportionalSalary,
+        monthYear,
+        baseSalary: userBaseSalary,
+        dailyWage: userDailyWage,
+        hoursWorked,
+        attendanceDetails,
+        dataSource: 'excel',
+        manualAttendanceSource: manualAttendance ? 'csv' : 'excel'
+      });
     }
 
-    let savedRecords = await Attendance.insertMany(attendanceRecords);
+    const saved = await Attendance.insertMany(attendanceRecords);
+    const insights = await getGrokInsights(saved);
 
-    // Generate AI insights
-    const insights = await getGrokInsights(savedRecords);
+    // cleanup temp files
+    try { fs.unlinkSync(excelFile.path); } catch {}
+    try { fs.unlinkSync(attendanceFile.path); } catch {}
 
-    // Clean up uploaded files
-    fs.unlinkSync(excelFile.path);
-    fs.unlinkSync(attendanceFile.path);
-
-    console.log(`Successfully processed ${savedRecords.length} attendance records`);
-
-    res.json({
-      success: true,
-      message: `Successfully processed ${savedRecords.length} employee records`,
-      data: savedRecords,
-      insights,
-      monthYear: monthYear
-    });
+    res.json({ success: true, message: `Successfully processed ${saved.length} employee records`, data: saved, insights, monthYear });
   } catch (err) {
     console.error('File upload error:', err);
-
-    if (req.files) {
-        if (req.files.excelFile && fs.existsSync(req.files.excelFile[0].path)) {
-            fs.unlinkSync(req.files.excelFile[0].path);
-        }
-        if (req.files.attendanceFile && fs.existsSync(req.files.attendanceFile[0].path)) {
-            fs.unlinkSync(req.files.attendanceFile[0].path);
-        }
-    }
-
-    res.status(500).json({
-      message: 'Error processing files',
-      error: err.message,
-      details: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    try {
+      if (req.files?.excelFile?.[0]?.path && fs.existsSync(req.files.excelFile[0].path)) fs.unlinkSync(req.files.excelFile[0].path);
+      if (req.files?.attendanceFile?.[0]?.path && fs.existsSync(req.files.attendanceFile[0].path)) fs.unlinkSync(req.files.attendanceFile[0].path);
+    } catch {}
+    res.status(500).json({ message: 'Error processing files', error: err.message, details: process.env.NODE_ENV === 'development' ? err.stack : undefined });
   }
 });
 
+// Get all attendance records (admin route)
 router.get('/', auth, async (req, res) => {
   try {
     const { monthYear, exposed } = req.query;
-    let query = {};
+    const query = {};
+    if (monthYear) query.monthYear = monthYear;
 
-    if (monthYear) {
-      query.monthYear = monthYear;
-    }
-
-    // If user is not admin, only show exposed data for their own records
     if (req.user.role !== 'admin') {
       query.userId = req.user.id;
       query.exposed = true;
@@ -275,98 +243,59 @@ router.get('/', auth, async (req, res) => {
 
     const data = await Attendance.find(query).sort({ name: 1 });
 
-    // Merge duplicate users with same name
+    // Merge duplicates by name (keep richer record)
     const uniqueUsers = new Map();
-
     data.forEach(record => {
-      const nameKey = record.name.toLowerCase().trim();
-
-      if (!uniqueUsers.has(nameKey)) {
-        uniqueUsers.set(nameKey, record);
-      } else {
-        // Merge with existing record (take the one with more hours or better data)
-        const existing = uniqueUsers.get(nameKey);
-        if (record.hoursWorked > existing.hoursWorked ||
-            record.daysPresent > existing.daysPresent ||
-            record.attendanceDetails.length > existing.attendanceDetails.length) {
-          uniqueUsers.set(nameKey, record);
+      const key = (record.name || '').toLowerCase().trim();
+      if (!uniqueUsers.has(key)) uniqueUsers.set(key, record);
+      else {
+        const existing = uniqueUsers.get(key);
+        if ((record.hoursWorked > existing.hoursWorked) ||
+            (record.daysPresent > existing.daysPresent) ||
+            ((record.attendanceDetails?.length || 0) > (existing.attendanceDetails?.length || 0))) {
+          uniqueUsers.set(key, record);
         }
       }
     });
 
-    const mergedData = Array.from(uniqueUsers.values());
-    res.json(mergedData);
+    const finalData = Array.from(uniqueUsers.values());
+    res.json(finalData);
   } catch (err) {
     console.error('Get attendance error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// Expose attendance data to user
 router.put('/expose/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { id } = req.params;
-    console.log('Exposing attendance record with ID:', id);
+    let result = await Attendance.findByIdAndUpdate(id, { exposed: true, updatedAt: new Date() }, { new: true });
+    if (!result) result = await Attendance.findOneAndUpdate({ userId: id }, { exposed: true, updatedAt: new Date() }, { new: true });
+    if (!result) result = await Attendance.findOneAndUpdate({ employeeId: id }, { exposed: true, updatedAt: new Date() }, { new: true });
 
-    let result;
+    if (!result) return res.status(404).json({ message: 'Attendance record not found' });
 
-    // Try to find by attendance record _id first
-    result = await Attendance.findByIdAndUpdate(id, { exposed: true, updatedAt: new Date() });
-
-    // If not found by _id, try by userId
-    if (!result) {
-      result = await Attendance.findOneAndUpdate(
-        { userId: id },
-        { exposed: true, updatedAt: new Date() }
-      );
-    }
-
-    // If still not found, try by employeeId
-    if (!result) {
-      result = await Attendance.findOneAndUpdate(
-        { employeeId: id },
-        { exposed: true, updatedAt: new Date() }
-      );
-    }
-
-    if (!result) {
-      console.log('Attendance record not found for ID:', id);
-      return res.status(404).json({ message: 'Attendance record not found' });
-    }
-
-    console.log(`Successfully exposed attendance data for: ${result.name} (${result.userId || result.employeeId})`);
-    res.json({
-      message: 'Data exposed successfully',
-      attendance: result,
-      exposed: true
-    });
+    res.json({ message: 'Data exposed successfully', attendance: result, exposed: true });
   } catch (err) {
     console.error('Expose attendance error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// Adjust salary
 router.put('/adjust/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { adjustedSalary, reason } = req.body;
-
-    if (!adjustedSalary || adjustedSalary < 0) {
-      return res.status(400).json({ message: 'Valid adjusted salary is required' });
-    }
+    if (!adjustedSalary || adjustedSalary < 0) return res.status(400).json({ message: 'Valid adjusted salary is required' });
 
     const attendance = await Attendance.findById(req.params.id);
-    if (!attendance) {
-      return res.status(404).json({ message: 'Attendance record not found' });
-    }
+    if (!attendance) return res.status(404).json({ message: 'Attendance record not found' });
 
-    // Create salary adjustment record
     const adjustment = new SalaryAdjustment({
       attendanceId: attendance._id,
       userId: attendance.userId,
@@ -376,204 +305,289 @@ router.put('/adjust/:id', auth, async (req, res) => {
       adjustedBy: req.user.id,
       monthYear: attendance.monthYear
     });
-
     await adjustment.save();
 
-    // Update attendance record
     attendance.adjustedSalary = parseFloat(adjustedSalary);
     attendance.updatedAt = new Date();
     await attendance.save();
 
-    res.json({
-      message: 'Salary adjusted successfully',
-      attendance,
-      adjustment
-    });
+    res.json({ message: 'Salary adjusted successfully', attendance, adjustment });
   } catch (err) {
     console.error('Salary adjustment error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Bulk expose to users
+// Bulk expose all records
 router.put('/expose-all', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { monthYear, userIds } = req.body;
-    let query = {};
+    const query = {};
+    if (monthYear) query.monthYear = monthYear;
+    if (userIds && userIds.length > 0) query.userId = { $in: userIds };
 
-    if (monthYear) {
-      query.monthYear = monthYear;
-    }
-
-    if (userIds && userIds.length > 0) {
-      query.userId = { $in: userIds };
-    }
-
-    const result = await Attendance.updateMany(query, {
-      exposed: true,
-      updatedAt: new Date()
-    });
-
-    res.json({
-      message: `Exposed ${result.modifiedCount} attendance records to users`,
-      modifiedCount: result.modifiedCount
-    });
+    const result = await Attendance.updateMany(query, { exposed: true, updatedAt: new Date() });
+    res.json({ message: `Exposed ${result.modifiedCount} attendance records to users`, modifiedCount: result.modifiedCount });
   } catch (err) {
     console.error('Bulk expose error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
+// **CRITICAL FIX: USER ROUTE** - This was the main issue
 router.get('/user/:userId', auth, async (req, res) => {
   try {
-    console.log('Fetching attendance for userId:', req.params.userId);
-
-    // Get the current user from the JWT token
+    console.log('=== USER ATTENDANCE REQUEST ===');
+    console.log('Requested userId:', req.params.userId);
+    console.log('Token user ID:', req.user.id);
+    console.log('Token user role:', req.user.role);
+    
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
+      console.log('❌ Current user not found in database');
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log('Current user:', {
+    console.log('✅ Current user found:', {
       id: currentUser._id,
       name: currentUser.name,
       employeeId: currentUser.employeeId,
       role: req.user.role
     });
 
-    let data = null;
+    // **CRITICAL FIX**: Search for exposed records first, then match to user
+    console.log('🔍 Step 1: Finding all exposed records...');
+    const exposedRecords = await Attendance.find({ exposed: true }).sort({ createdAt: -1 });
+    console.log(`📊 Found ${exposedRecords.length} exposed records`);
 
-    // For admin users, allow fetching any user's data
-    if (req.user.role === 'admin') {
-      // Try multiple ways to find the attendance record
-      data = await Attendance.findOne({
-        $or: [
-          { userId: req.params.userId },
-          { userId: currentUser._id.toString() },
-          { employeeId: currentUser.employeeId },
-          { name: { $regex: new RegExp(currentUser.name, 'i') } },
-          { userName: { $regex: new RegExp(currentUser.name, 'i') } }
-        ]
-      }).sort({ createdAt: -1 }); // Get the most recent record
-    } else {
-      // For regular users, only allow their own data
-      data = await Attendance.findOne({
-        $or: [
-          { userId: req.user.id },
-          { userId: currentUser._id.toString() },
-          { employeeId: currentUser.employeeId },
-          { name: { $regex: new RegExp(currentUser.name, 'i') } },
-          { userName: { $regex: new RegExp(currentUser.name, 'i') } }
-        ]
-      }).sort({ createdAt: -1 }); // Get the most recent record
+    // **DEBUG**: Let's also check all records to see what's in the database
+    console.log('🔍 DEBUG: Checking all attendance records...');
+    const allRecords = await Attendance.find({}).sort({ createdAt: -1 });
+    console.log(`📊 Total records in database: ${allRecords.length}`);
+    
+    if (allRecords.length > 0) {
+      console.log('📋 Sample records:');
+      allRecords.slice(0, 3).forEach((record, index) => {
+        console.log(`  ${index + 1}. Name: "${record.name}", UserId: "${record.userId}", EmployeeId: "${record.employeeId}", Exposed: ${record.exposed}`);
+      });
+      
+      // Check if there are any records that might match this user
+      const potentialMatches = allRecords.filter(record => {
+        return record.userId === req.user.id || 
+               record.userId === currentUser._id.toString() || 
+               record.employeeId === currentUser.employeeId ||
+               (record.name && currentUser.name && 
+                record.name.toLowerCase().includes(currentUser.name.toLowerCase()));
+      });
+      
+      console.log(`🎯 Found ${potentialMatches.length} potential matches for user:`);
+      potentialMatches.forEach((record, index) => {
+        console.log(`  ${index + 1}. Name: "${record.name}", UserId: "${record.userId}", EmployeeId: "${record.employeeId}", Exposed: ${record.exposed}, MonthYear: ${record.monthYear}`);
+      });
     }
 
-    if (data) {
-      console.log('Attendance data found:', {
-        name: data.name,
-        exposed: data.exposed,
-        monthYear: data.monthYear,
-        adjustedSalary: data.adjustedSalary,
-        dataUserId: data.userId,
-        requestUserId: req.user.id,
-        userRole: req.user.role,
-        dataSource: data.dataSource
-      });
+    let data = null;
 
-      // For non-admin users, check exposure status
-      if (req.user.role !== 'admin') {
-        if (!data.exposed) {
-          // Auto-expose data for the user's own records
-          console.log('Auto-exposing data for user:', data.name);
-          await Attendance.findByIdAndUpdate(data._id, {
-            exposed: true,
-            updatedAt: new Date()
-          });
-          data.exposed = true; // Update the local object
+    if (exposedRecords.length > 0) {
+      console.log('🎯 Step 2: Matching exposed records to current user...');
+      
+      // Method 1: Try to match by userId (exact match)
+      const userIdMatches = [
+        req.user.id,
+        currentUser._id.toString(),
+        req.params.userId
+      ];
+      
+      for (const userId of userIdMatches) {
+        if (userId) {
+          data = exposedRecords.find(record => record.userId === userId);
+          if (data) {
+            console.log('✅ Found userId match:', userId);
+            break;
+          }
         }
       }
 
-      // Add working days information to the response
-      try {
-        const workingDaysInfo = await calendarService.getWorkingDaysInMonth(data.monthYear, false);
-        data.workingDaysInfo = workingDaysInfo;
-      } catch (calendarError) {
-        console.warn('Could not fetch calendar info:', calendarError);
+      // Method 2: Try to match by employeeId
+      if (!data && currentUser.employeeId) {
+        data = exposedRecords.find(record => record.employeeId === currentUser.employeeId);
+        if (data) {
+          console.log('✅ Found employeeId match:', currentUser.employeeId);
+        }
       }
 
-      // Ensure the response includes all necessary data for the frontend
-      const responseData = {
-        ...data.toObject(),
-        exposed: data.exposed,
-        dataSource: data.dataSource || 'unknown'
-      };
+      // Method 3: Try to match by name (case insensitive)
+      if (!data && currentUser.name) {
+        data = exposedRecords.find(record => {
+          if (!record.name) return false;
+          const recordName = record.name.toLowerCase().trim();
+          const userName = currentUser.name.toLowerCase().trim();
+          return recordName === userName || 
+                 recordName.includes(userName) || 
+                 userName.includes(recordName);
+        });
+        if (data) {
+          console.log('✅ Found name match:', currentUser.name, '→', data.name);
+        }
+      }
 
-      res.json(responseData);
-    } else {
-      console.log('No attendance data found for user');
-      res.json(null);
+      // Method 4: Try to match by userName field
+      if (!data && currentUser.name) {
+        data = exposedRecords.find(record => {
+          if (!record.userName) return false;
+          const recordUserName = record.userName.toLowerCase().trim();
+          const userName = currentUser.name.toLowerCase().trim();
+          return recordUserName === userName || 
+                 recordUserName.includes(userName) || 
+                 userName.includes(recordUserName);
+        });
+        if (data) {
+          console.log('✅ Found userName match:', currentUser.name, '→', data.userName);
+        }
+      }
     }
+
+    // If still no data found, try direct database search (fallback)
+    if (!data) {
+      console.log('🔄 Step 3: Trying direct database search as fallback...');
+      
+      const searchQueries = [];
+      
+      // Add all possible user ID variations
+      if (req.user.id) searchQueries.push({ userId: req.user.id });
+      if (currentUser._id) searchQueries.push({ userId: currentUser._id.toString() });
+      if (req.params.userId) searchQueries.push({ userId: req.params.userId });
+      
+      // Add employeeId search
+      if (currentUser.employeeId) {
+        searchQueries.push({ employeeId: currentUser.employeeId });
+      }
+      
+      // Add name-based searches
+      if (currentUser.name) {
+        const escapedName = currentUser.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        searchQueries.push(
+          { name: { $regex: new RegExp(`^${escapedName}$`, 'i') } },
+          { userName: { $regex: new RegExp(`^${escapedName}$`, 'i') } },
+          { name: { $regex: new RegExp(escapedName, 'i') } },
+          { userName: { $regex: new RegExp(escapedName, 'i') } }
+        );
+      }
+
+      if (searchQueries.length > 0) {
+        data = await Attendance.findOne({
+          $or: searchQueries
+        }).sort({ createdAt: -1 });
+        
+        if (data) {
+          console.log('✅ Found via direct database search');
+        }
+      }
+    }
+
+    // Final check - if still no data found
+    if (!data) {
+      console.log('❌ No attendance data found after all searches');
+      console.log('Available exposed records:');
+      exposedRecords.forEach((record, index) => {
+        console.log(`  ${index + 1}. Name: "${record.name}", UserId: "${record.userId}", EmployeeId: "${record.employeeId}"`);
+      });
+      return res.json(null);
+    }
+
+    // Data found - process and return
+    console.log('✅ Attendance record found:', {
+      id: data._id,
+      name: data.name,
+      userId: data.userId,
+      employeeId: data.employeeId,
+      exposed: data.exposed,
+      monthYear: data.monthYear
+    });
+
+    // Ensure data is exposed (should already be, but double-check)
+    if (!data.exposed) {
+      console.log('🔓 Exposing data for user');
+      await Attendance.findByIdAndUpdate(data._id, { exposed: true, updatedAt: new Date() });
+      data.exposed = true;
+    }
+
+    // Add working days information
+    try {
+      const workingDaysInfo = calendarService.getWorkingDaysInMonth(data.monthYear, false);
+      data.workingDaysInfo = workingDaysInfo;
+      console.log('📅 Added working days info for month:', data.monthYear);
+    } catch (calendarError) {
+      console.warn('⚠️ Could not fetch working days info:', calendarError.message);
+    }
+
+    // Return the exact data as stored in database
+    const responseData = data.toObject();
+    
+    console.log('=== USER ROUTE RESPONSE DATA ===');
+    console.log('User ID searched:', req.user.id);
+    console.log('Found record ID:', responseData._id);
+    console.log('Record userId:', responseData.userId);
+    console.log('Record name:', responseData.name);
+    console.log('Exposed status:', responseData.exposed);
+    console.log('Key fields:', {
+      hoursWorked: responseData.hoursWorked,
+      adjustedSalary: responseData.adjustedSalary,
+      daysPresent: responseData.daysPresent,
+      exposed: responseData.exposed
+    });
+    console.log('=== END USER ROUTE RESPONSE ===');
+    
+    return res.json(responseData);
+
   } catch (err) {
-    console.error('Error fetching user attendance:', err);
-    res.status(500).json({ message: 'Server error' });
+    console.error('❌ Error fetching user attendance:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 });
 
+// Download attendance report
 router.get('/download', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { monthYear, format = 'csv' } = req.query;
-    let query = {};
-
-    if (monthYear) {
-      query.monthYear = monthYear;
-    }
+    const query = {};
+    if (monthYear) query.monthYear = monthYear;
 
     const data = await Attendance.find(query).sort({ name: 1 });
 
     if (format === 'excel' || format === 'xlsx') {
-      // Generate Excel file
       const excelBuffer = generateExcelReport(data, monthYear);
-
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=salary_report_${monthYear || 'all'}.xlsx`);
-      res.send(excelBuffer);
-    } else {
-      // Generate CSV file (default)
-      const fields = [
-        'employeeId', 'name', 'dept', 'daysPresent', 'totalWorkingDays',
-        'hoursWorked', 'salaryPercentage', 'baseSalary', 'calculatedSalary',
-        'adjustedSalary', 'monthYear', 'exposed'
-      ];
-      const json2csv = new Parser({ fields });
-      const csv = json2csv.parse(data);
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=salary_report_${monthYear || 'all'}.csv`);
-      res.send(csv);
+      return res.send(excelBuffer);
     }
+
+    const fields = [
+      'employeeId', 'name', 'dept', 'daysPresent', 'totalWorkingDays',
+      'hoursWorked', 'salaryPercentage', 'baseSalary', 'calculatedSalary',
+      'adjustedSalary', 'monthYear', 'exposed'
+    ];
+    const json2csv = new Parser({ fields });
+    const csv = json2csv.parse(data);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename=salary_report_${monthYear || 'all'}.csv`);
+    res.send(csv);
   } catch (err) {
     console.error('Download error:', err);
     res.status(500).json({ message: 'Error generating report' });
   }
 });
 
-// Get working days information for a month
+// Get working days for specific month
 router.get('/working-days/:monthYear', auth, async (req, res) => {
   try {
     const { monthYear } = req.params;
-
-    // Validate monthYear format
-    if (!/^\d{4}-\d{2}$/.test(monthYear)) {
-      return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
-    }
+    if (!/^[0-9]{4}-[0-9]{2}$/.test(monthYear)) return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
 
     const monthStats = getMonthStatistics(monthYear);
     const workingDays = getWorkingDaysInMonth(monthYear);
@@ -594,65 +608,49 @@ router.get('/working-days/:monthYear', auth, async (req, res) => {
   }
 });
 
-// Get unexposed users for admin
+// Get unexposed users
 router.get('/unexposed', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { monthYear } = req.query;
-    let query = { exposed: false };
-
-    if (monthYear) {
-      query.monthYear = monthYear;
-    }
+    const query = { exposed: false };
+    if (monthYear) query.monthYear = monthYear;
 
     const unexposedUsers = await Attendance.find(query)
       .select('userId name dept monthYear adjustedSalary daysPresent')
       .sort({ name: 1 });
 
-    res.json({
-      count: unexposedUsers.length,
-      users: unexposedUsers
-    });
+    res.json({ count: unexposedUsers.length, users: unexposedUsers });
   } catch (err) {
     console.error('Get unexposed users error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Expose all users for current month (admin only)
+// Expose all current month records
 router.put('/expose-all-current', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
-    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    const currentMonth = new Date().toISOString().slice(0, 7);
 
     const result = await Attendance.updateMany(
       { monthYear: currentMonth, exposed: false },
       { exposed: true, updatedAt: new Date() }
     );
 
-    console.log(`Exposed ${result.modifiedCount} attendance records for month ${currentMonth}`);
-    res.json({
-      message: `Exposed ${result.modifiedCount} attendance records for current month`,
-      monthYear: currentMonth,
-      modifiedCount: result.modifiedCount
-    });
+    res.json({ message: `Exposed ${result.modifiedCount} attendance records for current month`, monthYear: currentMonth, modifiedCount: result.modifiedCount });
   } catch (err) {
     console.error('Expose all current month error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get current month working days info
+// Get current month working days
 router.get('/working-days', auth, async (req, res) => {
   try {
-    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM format
-
+    const currentMonth = new Date().toISOString().slice(0, 7);
     const monthStats = getMonthStatistics(currentMonth);
     const workingDays = getWorkingDaysInMonth(currentMonth);
     const sundays = getSundaysInMonth(currentMonth);
@@ -672,15 +670,13 @@ router.get('/working-days', auth, async (req, res) => {
   }
 });
 
-// Get daily wage statistics
+// Get daily statistics
 router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
   try {
     const { monthYear } = req.params;
     const currentMonthYear = monthYear || new Date().toISOString().slice(0, 7);
 
-    // Get all attendance records for the month
     const attendanceRecords = await Attendance.find({ monthYear: currentMonthYear });
-
     if (attendanceRecords.length === 0) {
       return res.json({
         monthYear: currentMonthYear,
@@ -694,13 +690,10 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
       });
     }
 
-    // Calculate statistics
     const totalDays = attendanceRecords.reduce((sum, record) => sum + record.daysPresent, 0);
     const totalSalary = attendanceRecords.reduce((sum, record) => sum + record.adjustedSalary, 0);
     const avgDaysPerEmployee = totalDays / attendanceRecords.length;
     const avgSalaryPerEmployee = totalSalary / attendanceRecords.length;
-
-    // Get month statistics
     const monthStats = getMonthStatistics(currentMonthYear);
 
     res.json({
@@ -721,13 +714,10 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
   }
 });
 
-// Get duplicate users summary
+// Get duplicates summary
 router.get('/duplicates/summary', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
     const summary = await getDuplicateUsersSummary();
     res.json(summary);
   } catch (err) {
@@ -736,18 +726,12 @@ router.get('/duplicates/summary', auth, async (req, res) => {
   }
 });
 
-// Remove duplicate users
+// Remove duplicates
 router.post('/duplicates/remove', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
     const result = await deduplicateAttendanceRecords();
-    res.json({
-      message: 'Deduplication completed successfully',
-      ...result
-    });
+    res.json({ message: 'Deduplication completed successfully', ...result });
   } catch (err) {
     console.error('Deduplication error:', err);
     res.status(500).json({ message: 'Server error' });
@@ -755,132 +739,169 @@ router.post('/duplicates/remove', auth, async (req, res) => {
 });
 
 // Holiday Management Routes
-
-// Add holidays for a month (admin only)
 router.post('/holidays', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { holidays, monthYear } = req.body;
+    if (!holidays || !Array.isArray(holidays) || holidays.length === 0) return res.status(400).json({ message: 'Holidays array is required' });
+    if (!monthYear || !/^\d{4}-\d{2}$/.test(monthYear)) return res.status(400).json({ message: 'Valid monthYear (YYYY-MM) is required' });
 
-    if (!holidays || !Array.isArray(holidays) || holidays.length === 0) {
-      return res.status(400).json({ message: 'Holidays array is required' });
-    }
-
-    if (!monthYear || !/^\d{4}-\d{2}$/.test(monthYear)) {
-      return res.status(400).json({ message: 'Valid monthYear (YYYY-MM) is required' });
-    }
-
-    // Clear existing holidays for the month
     await Holiday.deleteMany({ monthYear });
 
-    // Create new holiday records
-    const holidayRecords = holidays.map(holiday => ({
-      date: holiday.date,
-      name: holiday.name,
-      description: holiday.description || '',
-      type: holiday.type || 'company',
+    const holidayRecords = holidays.map(h => ({
+      date: h.date,
+      name: h.name,
+      description: h.description || '',
+      type: h.type || 'company',
       monthYear,
       createdBy: req.user.id
     }));
 
     const savedHolidays = await Holiday.insertMany(holidayRecords);
-
-    res.json({
-      success: true,
-      message: `Added ${savedHolidays.length} holidays for ${monthYear}`,
-      holidays: savedHolidays
-    });
+    res.json({ success: true, message: `Added ${savedHolidays.length} holidays for ${monthYear}`, holidays: savedHolidays });
   } catch (err) {
     console.error('Add holidays error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get holidays for a month
+// Get holidays for month
 router.get('/holidays/:monthYear', auth, async (req, res) => {
   try {
     const { monthYear } = req.params;
+    if (!/^\d{4}-\d{2}$/.test(monthYear)) return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
 
-    if (!/^\d{4}-\d{2}$/.test(monthYear)) {
-      return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
-    }
-
-    const holidays = await Holiday.find({ 
-      monthYear, 
-      isActive: true 
-    }).sort({ date: 1 });
-
-    res.json({
-      monthYear,
-      count: holidays.length,
-      holidays
-    });
+    const holidays = await Holiday.find({ monthYear, isActive: true }).sort({ date: 1 });
+    res.json({ monthYear, count: holidays.length, holidays });
   } catch (err) {
     console.error('Get holidays error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Update holiday (admin only)
+// Update holiday
 router.put('/holidays/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
 
     const { id } = req.params;
     const { name, description, type, isActive } = req.body;
 
     const holiday = await Holiday.findByIdAndUpdate(
       id,
-      {
-        name,
-        description,
-        type,
-        isActive,
-        updatedAt: new Date()
-      },
+      { name, description, type, isActive, updatedAt: new Date() },
       { new: true }
     );
+    if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
 
-    if (!holiday) {
-      return res.status(404).json({ message: 'Holiday not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Holiday updated successfully',
-      holiday
-    });
+    res.json({ success: true, message: 'Holiday updated successfully', holiday });
   } catch (err) {
     console.error('Update holiday error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Delete holiday (admin only)
+// Delete holiday
 router.delete('/holidays/:id', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
     const { id } = req.params;
     const holiday = await Holiday.findByIdAndDelete(id);
-
-    if (!holiday) {
-      return res.status(404).json({ message: 'Holiday not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Holiday deleted successfully'
-    });
+    if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
+    res.json({ success: true, message: 'Holiday deleted successfully' });
   } catch (err) {
     console.error('Delete holiday error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Salary Increase Route
+router.put('/salary-increase/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
+
+    const { amount, reason } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ message: 'Valid increase amount is required' });
+
+    const attendance = await Attendance.findById(req.params.id);
+    if (!attendance) return res.status(404).json({ message: 'Attendance record not found' });
+
+    const originalSalary = attendance.adjustedSalary;
+    const newSalary = originalSalary + parseFloat(amount);
+
+    const adjustment = new SalaryAdjustment({
+      attendanceId: attendance._id,
+      userId: attendance.userId,
+      originalSalary: originalSalary,
+      adjustedSalary: newSalary,
+      adjustmentReason: reason || `Salary increase of ₹${amount}`,
+      adjustmentType: 'increase',
+      adjustmentAmount: parseFloat(amount),
+      adjustedBy: req.user.id,
+      monthYear: attendance.monthYear
+    });
+    await adjustment.save();
+
+    attendance.adjustedSalary = newSalary;
+    attendance.updatedAt = new Date();
+    await attendance.save();
+
+    res.json({ 
+      message: 'Salary increased successfully', 
+      attendance, 
+      adjustment,
+      originalSalary,
+      newSalary,
+      increaseAmount: parseFloat(amount)
+    });
+  } catch (err) {
+    console.error('Salary increase error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Salary Decrease Route
+router.put('/salary-decrease/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
+
+    const { amount, reason } = req.body;
+    if (!amount || amount <= 0) return res.status(400).json({ message: 'Valid decrease amount is required' });
+
+    const attendance = await Attendance.findById(req.params.id);
+    if (!attendance) return res.status(404).json({ message: 'Attendance record not found' });
+
+    const originalSalary = attendance.adjustedSalary;
+    const newSalary = Math.max(0, originalSalary - parseFloat(amount)); // Ensure salary doesn't go negative
+
+    const adjustment = new SalaryAdjustment({
+      attendanceId: attendance._id,
+      userId: attendance.userId,
+      originalSalary: originalSalary,
+      adjustedSalary: newSalary,
+      adjustmentReason: reason || `Salary decrease of ₹${amount}`,
+      adjustmentType: 'decrease',
+      adjustmentAmount: parseFloat(amount),
+      adjustedBy: req.user.id,
+      monthYear: attendance.monthYear
+    });
+    await adjustment.save();
+
+    attendance.adjustedSalary = newSalary;
+    attendance.updatedAt = new Date();
+    await attendance.save();
+
+    res.json({ 
+      message: 'Salary decreased successfully', 
+      attendance, 
+      adjustment,
+      originalSalary,
+      newSalary,
+      decreaseAmount: parseFloat(amount)
+    });
+  } catch (err) {
+    console.error('Salary decrease error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

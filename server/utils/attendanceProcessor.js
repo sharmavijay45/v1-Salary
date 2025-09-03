@@ -323,46 +323,88 @@ export const processManualAttendance = (filePath) => {
         const results = await processPDFAttendance(filePath);
         resolve(results);
       } else {
-        // Handle CSV files (existing logic)
-        console.log('Processing CSV attendance file...');
+        // Handle CSV files (enhanced manual attendance parsing)
+        console.log('Processing CSV attendance file (manual statuses)...');
         const results = {};
         fs.createReadStream(filePath)
           .pipe(csv())
           .on('data', (data) => {
             try {
-              const employeeId = data.employeeId || data.EmployeeId || data.EMPLOYEEID || data.name?.toLowerCase().trim();
-              if (employeeId) {
-                if (!results[employeeId]) {
-                  results[employeeId] = {
-                    presentDays: 0,
-                    dates: new Set(),
-                    attendanceDetails: []
-                  };
-                }
-                // Assuming the file has a 'date' column.
-                const date = data.date || data.Date || data.DATE;
-                if (date) {
-                  // Avoid counting duplicate dates for the same employee
-                  if (!results[employeeId].dates.has(date)) {
-                    results[employeeId].dates.add(date);
-                    results[employeeId].presentDays += 1;
+              const rawName = (data.name || data.Name || data.employee || data.Employee || '').toString().trim();
+              const employeeId = data.employeeId || data.EmployeeId || data.EMPLOYEEID || (rawName ? rawName.toLowerCase().replace(/\s+/g, '_') : '');
+              if (!employeeId) return;
 
-                    // Add to attendance details
-                    results[employeeId].attendanceDetails.push({
-                      day: new Date(date).getDate(),
-                      status: data.status || 'PRESENT',
-                      date: date
-                    });
-                  }
+              if (!results[employeeId]) {
+                results[employeeId] = {
+                  name: rawName || employeeId,
+                  presentDays: 0,
+                  dates: new Set(),
+                  attendanceDetails: [],
+                  totalHours: 0
+                };
+              }
+
+              const dateStr = (data.date || data.Date || data.DATE || '').toString().trim();
+              if (!dateStr) return;
+
+              // Normalize and map status
+              const rawStatus = (data.status || data.Status || data.STATUS || '').toString().trim();
+              const statusUpper = rawStatus.toUpperCase();
+              let normalizedStatus = 'Absent';
+              if (['PRESENT', 'P', 'WFH', 'EWFH', 'PR', 'WORK FROM HOME', 'HOLIDAY', 'HOL'].includes(statusUpper)) {
+                normalizedStatus = statusUpper === 'WFH' || statusUpper === 'WORK FROM HOME' ? 'WFH' : 'Present';
+              } else if (['HALF DAY', 'HD', 'H', 'HALFDAY', 'HALF'].includes(statusUpper)) {
+                normalizedStatus = 'Half Day';
+              } else {
+                normalizedStatus = 'Absent';
+              }
+
+              // Compute hours from checkIn/checkOut if present
+              const checkInValue = (data.checkIn || data['check in'] || data.CheckIn || data['Check In'] || '').toString().trim();
+              const checkOutValue = (data.checkOut || data['check out'] || data.CheckOut || data['Check Out'] || '').toString().trim();
+
+              let hoursWorked = 0;
+              if (normalizedStatus === 'WFH') {
+                hoursWorked = 8;
+              } else if (checkInValue || checkOutValue) {
+                const parsed = parseCSVAttendanceValue(checkInValue, checkOutValue);
+                hoursWorked = parsed.hoursWorked;
+              } else {
+                // Fallback if no times provided
+                if (normalizedStatus === 'Present') hoursWorked = 8;
+                else if (normalizedStatus === 'Half Day') hoursWorked = 4;
+                else hoursWorked = 0;
+              }
+
+              const dayNum = new Date(dateStr).getDate();
+
+              // Avoid duplicates per date
+              if (!results[employeeId].dates.has(dateStr)) {
+                results[employeeId].dates.add(dateStr);
+
+                // Increment present days tally with mapping rules
+                if (normalizedStatus === 'Present' || normalizedStatus === 'WFH') {
+                  results[employeeId].presentDays += 1;
+                } else if (normalizedStatus === 'Half Day') {
+                  results[employeeId].presentDays += 0.5;
                 }
+
+                results[employeeId].totalHours += hoursWorked;
+
+                results[employeeId].attendanceDetails.push({
+                  day: dayNum,
+                  status: normalizedStatus,
+                  date: dateStr,
+                  checkIn: checkInValue || (normalizedStatus === 'WFH' ? 'WFH' : ''),
+                  checkOut: checkOutValue || (normalizedStatus === 'WFH' ? 'WFH' : ''),
+                  hoursWorked
+                });
               }
             } catch (error) {
-              // Log error for a specific row but continue processing
               console.error('Error processing CSV row:', data, error);
             }
           })
           .on('end', () => {
-            // Convert sets to arrays for easier use later if needed
             Object.keys(results).forEach(employeeId => {
               results[employeeId].dates = Array.from(results[employeeId].dates);
             });

@@ -141,10 +141,10 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                 {activeTab === 'overview' && (
                   <div className="space-y-6">
                     {/* Summary Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       <div className="bg-blue-50 rounded-lg p-4 text-center">
                         <Clock className="w-8 h-8 text-blue-600 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-blue-600">{employee?.hoursWorked}h</p>
+                        <p className="text-2xl font-bold text-blue-600">{employee?.hoursWorked || 0}h</p>
                         <p className="text-sm text-gray-600">Hours Worked</p>
                       </div>
                       <div className="bg-green-50 rounded-lg p-4 text-center">
@@ -154,8 +154,13 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                       </div>
                       <div className="bg-purple-50 rounded-lg p-4 text-center">
                         <TrendingUp className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-                        <p className="text-2xl font-bold text-purple-600">{Math.round(employee?.attendancePercentage || 0)}%</p>
-                        <p className="text-sm text-gray-600">Attendance</p>
+                        <p className="text-2xl font-bold text-purple-600">{employee?.payableDays || employee?.totalWorkingDays}</p>
+                        <p className="text-sm text-gray-600">Payable Days</p>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-4 text-center">
+                        <Calculator className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-yellow-600">{employee?.effectiveDaysWithHolidays || 0}</p>
+                        <p className="text-sm text-gray-600">Effective Days</p>
                       </div>
                       <div className="bg-orange-50 rounded-lg p-4 text-center">
                         <DollarSign className="w-8 h-8 text-orange-600 mx-auto mb-2" />
@@ -163,6 +168,81 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                           {formatCurrency(employee?.adjustedSalary || 0)}
                         </p>
                         <p className="text-sm text-gray-600">Final Salary</p>
+                      </div>
+                    </div>
+
+                    {/* Two Salary Methods Comparison */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <Calendar className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-blue-900">Day-wise Salary Method</h3>
+                            <p className="text-sm text-blue-700">Present Days + Holidays</p>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-700">Days Present:</span>
+                            <span className="font-medium">{employee?.daysPresent}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-700">+ Holidays:</span>
+                            <span className="font-medium">{(employee?.payableDays || employee?.totalWorkingDays) - employee?.daysPresent}</span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t border-blue-200 pt-2">
+                            <span className="text-blue-700">= Payable Days:</span>
+                            <span className="font-medium">{employee?.payableDays || employee?.totalWorkingDays}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-blue-700">× Daily Wage:</span>
+                            <span className="font-medium">₹{employee?.dailyWage || 258}</span>
+                          </div>
+                          <div className="flex justify-between text-lg font-bold text-blue-900 bg-blue-100 p-3 rounded-lg">
+                            <span>Day-wise Salary:</span>
+                            <span>{formatCurrency(employee?.dayWiseSalary || employee?.adjustedSalary)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-green-50 rounded-lg p-6 border border-green-200">
+                        <div className="flex items-center space-x-3 mb-4">
+                          <div className="p-2 bg-green-100 rounded-lg">
+                            <Clock className="w-6 h-6 text-green-600" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-semibold text-green-900">Hours-based Salary Method</h3>
+                            <p className="text-sm text-green-700">Hours Worked + Holiday Hours</p>
+                          </div>
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-700">Hours Worked:</span>
+                            <span className="font-medium">{employee?.hoursWorked || 0}h</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-700">+ Holiday Hours:</span>
+                            <span className="font-medium">{(employee?.hoursWithHolidays || 0) - (employee?.hoursWorked || 0)}h</span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t border-green-200 pt-2">
+                            <span className="text-green-700">= Total Hours:</span>
+                            <span className="font-medium">{employee?.hoursWithHolidays || 0}h</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-700">÷ 8 + Holidays:</span>
+                            <span className="font-medium">{employee?.effectiveDaysWithHolidays || 0} days</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-green-700">× Daily Wage:</span>
+                            <span className="font-medium">₹{employee?.dailyWage || 258}</span>
+                          </div>
+                          <div className="flex justify-between text-lg font-bold text-green-900 bg-green-100 p-3 rounded-lg">
+                            <span>Hours-based Salary:</span>
+                            <span>{formatCurrency(employee?.proportionalSalary || employee?.adjustedSalary)}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -189,18 +269,77 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                       </div>
                     </div>
 
-                    {/* Quick Calculation Formula */}
-                    {calculationDetails?.salaryBreakdown && (
-                      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                        <div className="flex items-center space-x-2 mb-2">
-                          <Zap className="w-5 h-5 text-blue-600" />
-                          <span className="font-medium text-gray-900">Calculation Formula</span>
+                    {/* August 2025 Calculation Summary */}
+                    <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6 border border-purple-200">
+                      <div className="flex items-center space-x-3 mb-4">
+                        <div className="p-2 bg-purple-100 rounded-lg">
+                          <Calculator className="w-6 h-6 text-purple-600" />
                         </div>
-                        <code className="text-sm font-mono text-blue-700">
-                          {calculationDetails.salaryBreakdown.calculationFormula}
-                        </code>
+                        <div>
+                          <h3 className="text-lg font-semibold text-purple-900">August 2025 Calculation Summary</h3>
+                          <p className="text-sm text-purple-700">31 total days, 26-day salary cap applied</p>
+                        </div>
                       </div>
-                    )}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-lg p-4">
+                          <h4 className="font-medium text-gray-900 mb-2">Manual Attendance</h4>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span>Days Present:</span>
+                              <span className="font-medium">{employee?.daysPresent}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>+ Holidays:</span>
+                              <span className="font-medium">{((employee?.payableDays || employee?.totalWorkingDays) - employee?.daysPresent) || 5}</span>
+                            </div>
+                            <div className="flex justify-between font-medium text-purple-600">
+                              <span>Days Presenty:</span>
+                              <span>{employee?.payableDays || employee?.totalWorkingDays}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-lg p-4">
+                          <h4 className="font-medium text-gray-900 mb-2">Biometric Hours</h4>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span>Total Hours:</span>
+                              <span className="font-medium">{employee?.hoursWorked || 0}h</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>÷ 8 + Holidays:</span>
+                              <span className="font-medium">{employee?.effectiveDaysWithHolidays || 0}</span>
+                            </div>
+                            <div className="flex justify-between font-medium text-purple-600">
+                              <span>Hours Presenty Days:</span>
+                              <span>{employee?.effectiveDaysWithHolidays || 0}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-lg p-4">
+                          <h4 className="font-medium text-gray-900 mb-2">Final Salary</h4>
+                          <div className="space-y-1 text-sm">
+                            <div className="flex justify-between">
+                              <span>Day-wise (capped):</span>
+                              <span className="font-medium">{formatCurrency(employee?.dayWiseSalary || 0)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Hours-based (capped):</span>
+                              <span className="font-medium">{formatCurrency(employee?.proportionalSalary || 0)}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-purple-600 border-t pt-1">
+                              <span>Applied Salary:</span>
+                              <span>{formatCurrency(employee?.adjustedSalary || 0)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 p-3 bg-purple-100 rounded-lg">
+                        <p className="text-xs text-purple-700">
+                          <strong>26-Day Cap:</strong> Both methods are capped at 26 days × ₹258 = ₹6,708 maximum salary per month.
+                          WFH days are credited 8 hours automatically in the manual attendance processing.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
 

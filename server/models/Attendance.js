@@ -9,6 +9,11 @@ const attendanceSchema = new mongoose.Schema({
   daysPresent: { type: Number, required: true, default: 0 },
   hoursWorked: { type: Number, required: true, default: 0 },
   totalWorkingDays: { type: Number, required: true, default: 26 },
+  payableDays: { type: Number, default: 0 },
+  hoursWithHolidays: { type: Number, default: 0 },
+  effectiveDaysWithHolidays: { type: Number, default: 0 },
+  dayWiseSalary: { type: Number, default: 0 },
+  proportionalSalary: { type: Number, default: 0 },
   workingDaysInMonth: { type: Number, default: 26 }, // Actual working days in month (excluding Sundays)
   expectedTotalHours: { type: Number, default: 208 }, // Expected total hours (26 days * 8 hours)
   avgHoursPerDay: { type: Number, default: 0 }, // Average hours worked per day
@@ -25,12 +30,12 @@ const attendanceSchema = new mongoose.Schema({
     checkIn: { type: String },
     checkOut: { type: String },
     hoursWorked: { type: Number, default: 0 },
-    status: { type: String, enum: ['Present', 'Absent', 'Half Day'], default: 'Absent' }
+    status: { type: String, enum: ['Present', 'Absent', 'Half Day', 'WFH'], default: 'Absent' }
   }],
   monthYear: { type: String, required: true }, // Format: "2025-01"
   exposed: { type: Boolean, default: false },
   dataSource: { type: String, enum: ['pdf', 'excel', 'unknown'], default: 'unknown' }, // Track data source
-  manualAttendanceSource: { type: String, enum: ['pdf', 'excel'], default: 'excel' }, // Track manual attendance source
+  manualAttendanceSource: { type: String, enum: ['pdf', 'excel', 'csv'], default: 'excel' }, // Track manual attendance source
   aiInsights: { type: String },
   // Working days related fields
   sundayAttendance: { type: Number, default: 0 }, // Number of Sundays marked as present

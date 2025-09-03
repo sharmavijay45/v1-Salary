@@ -7,6 +7,7 @@ import attendanceRoutes from './routes/attendance.js';
 import feedbackRoutes from './routes/feedback.js';
 import migrationRoutes from './routes/migration.js';
 import calendarRoutes from './routes/calendar.js';
+import settingsRoutes from './routes/settings.js';
 
 dotenv.config();
 const app = express();
@@ -47,6 +48,7 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/migration', migrationRoutes);
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/settings', settingsRoutes);
 
 mongoose.connect(process.env.MONGODB_URI, { dbName: 'salary_blackhole' })
   .then(() => console.log('MongoDB connected to salary_blackhole database'))

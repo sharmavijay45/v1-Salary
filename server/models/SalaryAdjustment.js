@@ -6,6 +6,8 @@ const salaryAdjustmentSchema = new mongoose.Schema({
   originalSalary: { type: Number, required: true },
   adjustedSalary: { type: Number, required: true },
   adjustmentReason: { type: String, required: true },
+  adjustmentType: { type: String, enum: ['increase', 'decrease', 'manual'], default: 'manual' },
+  adjustmentAmount: { type: Number }, // Amount of increase/decrease
   adjustedBy: { type: String, required: true }, // Admin user ID
   feedbackId: { type: mongoose.Schema.Types.ObjectId, ref: 'Feedback' },
   monthYear: { type: String, required: true },

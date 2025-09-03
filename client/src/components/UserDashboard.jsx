@@ -164,7 +164,7 @@ function UserDashboard() {
               className="space-y-8"
             >
               {/* Summary Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -177,7 +177,26 @@ function UserDashboard() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-secondary-600">Days Present</p>
-                      <p className="text-2xl font-bold text-secondary-900">{userData.daysPresent}/{userData.totalWorkingDays}</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.daysPresent}</p>
+                      <p className="text-xs text-secondary-500">Manual attendance</p>
+                    </div>
+                  </div>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.45 }}
+                  className="card hover:shadow-glow transition-all duration-300"
+                >
+                  <div className="flex items-center">
+                    <div className="p-3 bg-green-100 rounded-xl">
+                      <TrendingUp className="w-6 h-6 text-green-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-secondary-600">Payable Days</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.payableDays || userData.totalWorkingDays}</p>
+                      <p className="text-xs text-secondary-500">Present + holidays</p>
                     </div>
                   </div>
                 </motion.div>
@@ -195,7 +214,7 @@ function UserDashboard() {
                     <div className="ml-4">
                       <p className="text-sm font-medium text-secondary-600">Total Hours</p>
                       <p className="text-2xl font-bold text-secondary-900">{userData.hoursWorked}h</p>
-                      <p className="text-xs text-secondary-500">of {userData.expectedTotalHours || 208}h expected</p>
+                      <p className="text-xs text-secondary-500">Biometric data</p>
                     </div>
                   </div>
                 </motion.div>
@@ -211,9 +230,9 @@ function UserDashboard() {
                       <Clock className="w-6 h-6 text-blue-600" />
                     </div>
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-secondary-600">Avg Hours/Day</p>
-                      <p className="text-2xl font-bold text-secondary-900">{userData.avgHoursPerDay || 0}h</p>
-                      <p className="text-xs text-secondary-500">₹{userData.dailyWage || 258}/day</p>
+                      <p className="text-sm font-medium text-secondary-600">Effective Days</p>
+                      <p className="text-2xl font-bold text-secondary-900">{userData.effectiveDaysWithHolidays}</p>
+                      <p className="text-xs text-secondary-500">(Hours/8) + holidays</p>
                     </div>
                   </div>
                 </motion.div>
@@ -229,9 +248,9 @@ function UserDashboard() {
                       <DollarSign className="w-6 h-6 text-warning-600" />
                     </div>
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-secondary-600">Salary</p>
-                      <p className="text-2xl font-bold text-secondary-900">₹{userData.adjustedSalary.toLocaleString()}</p>
-                      <p className="text-xs text-secondary-500">{userData.daysPresent} days × ₹{userData.dailyWage || 258}</p>
+                      <p className="text-sm font-medium text-secondary-600">Day-wise Salary</p>
+                      <p className="text-2xl font-bold text-secondary-900">₹{userData.dayWiseSalary.toLocaleString()}</p>
+                      <p className="text-xs text-secondary-500">Days × ₹{userData.dailyWage}</p>
                     </div>
                   </div>
                 </motion.div>
@@ -239,21 +258,108 @@ function UserDashboard() {
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.7 }}
+                  transition={{ delay: 0.65 }}
                   className="card hover:shadow-glow transition-all duration-300"
                 >
                   <div className="flex items-center">
                     <div className="p-3 bg-purple-100 rounded-xl">
-                      <TrendingUp className="w-6 h-6 text-purple-600" />
+                      <BarChart3 className="w-6 h-6 text-purple-600" />
                     </div>
                     <div className="ml-4">
-                      <p className="text-sm font-medium text-secondary-600">Hours %</p>
-                      <p className="text-2xl font-bold text-secondary-900">{userData.hoursPercentage || userData.salaryPercentage}%</p>
-                      <p className="text-xs text-secondary-500">Attendance: {userData.attendancePercentage}%</p>
+                      <p className="text-sm font-medium text-secondary-600">Final Salary</p>
+                      <p className="text-2xl font-bold text-secondary-900">₹{userData.adjustedSalary.toLocaleString()}</p>
+                      <p className="text-xs text-secondary-500">After adjustments</p>
                     </div>
                   </div>
                 </motion.div>
               </div>
+
+              {/* Salary Calculation Summary */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.75 }}
+                className="card bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <DollarSign className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-blue-900">August 2025 Salary Calculation</h3>
+                      <p className="text-sm text-blue-700">Two calculation methods with 26-day cap</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-blue-600">₹{userData.adjustedSalary.toLocaleString()}</p>
+                    <p className="text-sm text-blue-500">Final Salary</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-lg p-4 border border-blue-200">
+                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                      <Calendar className="w-4 h-4 mr-2 text-blue-600" />
+                      Day-wise Method
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Days Present:</span>
+                        <span className="font-medium">{userData.daysPresent}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>+ Holidays:</span>
+                        <span className="font-medium">{(userData.payableDays - userData.daysPresent)}</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-2">
+                        <span>= Payable Days:</span>
+                        <span className="font-medium text-blue-600">{userData.payableDays}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>× Daily Wage (₹{userData.dailyWage}):</span>
+                        <span className="font-bold text-blue-600">₹{userData.dayWiseSalary.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 border border-purple-200">
+                    <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                      <Clock className="w-4 h-4 mr-2 text-purple-600" />
+                      Hours-based Method
+                    </h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>Hours Worked:</span>
+                        <span className="font-medium">{userData.hoursWorked}h</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>+ Holiday Hours:</span>
+                        <span className="font-medium">{(userData.hoursWithHolidays - userData.hoursWorked)}h</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-2">
+                        <span>= Total Hours:</span>
+                        <span className="font-medium text-purple-600">{userData.hoursWithHolidays}h</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>÷ 8 + Holidays:</span>
+                        <span className="font-medium text-purple-600">{userData.effectiveDaysWithHolidays} days</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>× Daily Wage (₹{userData.dailyWage}):</span>
+                        <span className="font-bold text-purple-600">₹{userData.proportionalSalary.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-3 bg-blue-100 rounded-lg">
+                  <p className="text-xs text-blue-700">
+                    <strong>26-Day Cap Applied:</strong> Both methods are capped at 26 days × ₹258 = ₹6,708 maximum salary per month.
+                    WFH days automatically credit 8 hours. Final salary uses the day-wise method result.
+                  </p>
+                </div>
+              </motion.div>
 
             {/* Working Days Information */}
             {userData.monthStatistics && (

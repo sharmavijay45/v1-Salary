@@ -279,3 +279,81 @@ export const deleteHoliday = async (holidayId) => {
   });
   return response.data;
 };
+
+// Settings API functions
+export const getSettings = async () => {
+  const response = await axios.get('/settings', {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const updateSettings = async (settings) => {
+  const response = await axios.put('/settings', settings, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const resetSettings = async () => {
+  const response = await axios.post('/settings/reset', {}, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const getSystemStats = async () => {
+  const response = await axios.get('/settings/stats', {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const backupSettings = async () => {
+  const response = await axios.post('/settings/backup', {}, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const restoreSettings = async (backup) => {
+  const response = await axios.post('/settings/restore', { backup }, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const updateUserSalary = async (userId, salaryData) => {
+  const response = await axios.put(`/settings/user-salary/${userId}`, salaryData, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+export const bulkUpdateSalaries = async (updates) => {
+  const response = await axios.put('/settings/bulk-salary-update', { updates }, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+  });
+  return response.data;
+};
+
+// Salary Increase/Decrease APIs
+export const increaseSalary = async (attendanceId, amount, reason) => {
+  const response = await axios.put(`/attendance/salary-increase/${attendanceId}`, 
+    { amount, reason },
+    {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    }
+  );
+  return response.data;
+};
+
+export const decreaseSalary = async (attendanceId, amount, reason) => {
+  const response = await axios.put(`/attendance/salary-decrease/${attendanceId}`, 
+    { amount, reason },
+    {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+    }
+  );
+  return response.data;
+};

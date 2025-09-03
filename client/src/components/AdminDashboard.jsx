@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { uploadAttendance, getAttendance, exposeAttendance, adjustSalary, getFeedbacks, downloadReport, exposeAllAttendance, migrateUsers, syncUser, respondToFeedback, updateFeedbackStatus, getDuplicatesSummary, removeDuplicates, getCalendarWorkingDays, getHolidaysForMonth, getCurrentWorkingDays } from '../api';
+import { uploadAttendance, getAttendance, exposeAttendance, adjustSalary, getFeedbacks, downloadReport, exposeAllAttendance, migrateUsers, syncUser, respondToFeedback, updateFeedbackStatus, getDuplicatesSummary, removeDuplicates, getCalendarWorkingDays, getHolidaysForMonth, getCurrentWorkingDays, getSettings, updateSettings, resetSettings, getSystemStats, updateUserSalary, bulkUpdateSalaries, increaseSalary, decreaseSalary } from '../api';
 import SalaryExplanationModal from './SalaryExplanationModal';
 import HolidayInputModal from './HolidayInputModal';
 import HolidayManager from './HolidayManager';
+import SettingsTab from './SettingsTab';
+import SalaryAdjustmentModal from './SalaryAdjustmentModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload, Users, BarChart3, MessageSquare, Settings,
@@ -50,6 +52,9 @@ function AdminDashboard() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [totalHolidays, setTotalHolidays] = useState(0);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [settings, setSettings] = useState(null);
+  const [systemStats, setSystemStats] = useState(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -187,7 +192,7 @@ function AdminDashboard() {
 
   const handleExposeSelected = async () => {
     if (selectedUsers.length === 0) {
-      alert('Please select users to expose');
+      toast.error('Please select users to expose');
       return;
     }
 
@@ -195,10 +200,10 @@ function AdminDashboard() {
       await exposeAllAttendance(currentMonthYear, selectedUsers);
       await fetchData();
       setSelectedUsers([]);
-      alert('Selected users exposed successfully!');
+      toast.success('Selected users exposed successfully!');
     } catch (err) {
       console.error('Expose error:', err);
-      alert('Error exposing users: ' + (err.response?.data?.message || err.message));
+      toast.error('Error exposing users: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -221,10 +226,10 @@ function AdminDashboard() {
 
       setShowAdjustModal(false);
       setAdjustingUser(null);
-      alert('Salary adjusted successfully!');
+      toast.success('Salary adjusted successfully!');
     } catch (err) {
       console.error('Salary adjustment error:', err);
-      alert('Error adjusting salary: ' + (err.response?.data?.message || err.message));
+      toast.error('Error adjusting salary: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -239,9 +244,10 @@ function AdminDashboard() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      toast.success('Report downloaded successfully!');
     } catch (err) {
       console.error('Download error:', err);
-      alert('Error downloading report: ' + (err.response?.data?.message || err.message));
+      toast.error('Error downloading report: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -254,10 +260,10 @@ function AdminDashboard() {
       setShowFeedbackModal(false);
       setSelectedFeedback(null);
       setAdminResponse('');
-      alert('Response sent successfully!');
+      toast.success('Response sent successfully!');
     } catch (err) {
       console.error('Feedback response error:', err);
-      alert('Error sending response: ' + (err.response?.data?.message || err.message));
+      toast.error('Error sending response: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -265,29 +271,55 @@ function AdminDashboard() {
     try {
       await updateFeedbackStatus(feedbackId, newStatus);
       await fetchData(); // Refresh feedback data
-      alert('Status updated successfully!');
+      toast.success('Status updated successfully!');
     } catch (err) {
       console.error('Status update error:', err);
-      alert('Error updating status: ' + (err.response?.data?.message || err.message));
+      toast.error('Error updating status: ' + (err.response?.data?.message || err.message));
     }
   };
 
   const handleRemoveDuplicates = async () => {
-    if (!confirm('Are you sure you want to remove duplicate users? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const result = await removeDuplicates();
-      toast.success(`Deduplication completed! Removed ${result.removed} duplicates, kept ${result.kept} unique users.`);
-      fetchData(); // Refresh data
-    } catch (err) {
-      console.error('Remove duplicates error:', err);
-      toast.error('Error removing duplicates: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setLoading(false);
-    }
+    // Create a custom confirmation toast
+    const confirmToast = toast((t) => (
+      <div className="flex flex-col space-y-3">
+        <div className="text-sm font-medium text-gray-900">
+          Remove Duplicate Users
+        </div>
+        <div className="text-sm text-gray-600">
+          Are you sure you want to remove duplicate users? This action cannot be undone.
+        </div>
+        <div className="flex space-x-2">
+          <button
+            onClick={async () => {
+              toast.dismiss(t.id);
+              try {
+                setLoading(true);
+                const result = await removeDuplicates();
+                toast.success(`Deduplication completed! Removed ${result.removed} duplicates, kept ${result.kept} unique users.`);
+                fetchData(); // Refresh data
+              } catch (err) {
+                console.error('Remove duplicates error:', err);
+                toast.error('Error removing duplicates: ' + (err.response?.data?.message || err.message));
+              } finally {
+                setLoading(false);
+              }
+            }}
+            className="px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+          >
+            Yes, Remove
+          </button>
+          <button
+            onClick={() => toast.dismiss(t.id)}
+            className="px-3 py-1 bg-gray-300 text-gray-700 text-xs rounded hover:bg-gray-400"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ), {
+      duration: 10000,
+      position: 'top-center',
+    });
   };
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042'];
@@ -879,11 +911,12 @@ function AdminDashboard() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present Days</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Working Days</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Days</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Work Hours</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Hours/Day</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salary</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payable Days</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Hours</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours + Holidays</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Effective Days</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Day-wise Salary</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours-based Salary</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -923,33 +956,31 @@ function AdminDashboard() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.dept}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <div className="font-medium">{user.daysPresent}</div>
-                          <div className="text-xs text-gray-500">
-                            Present days
-                          </div>
+                          <div className="text-xs text-gray-500">Manual attendance</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <div className="font-medium">{user.totalWorkingDays}</div>
-                          <div className="text-xs text-gray-500">
-                            (with holidays)
-                          </div>
+                          <div className="font-medium">{user.payableDays || user.totalWorkingDays}</div>
+                          <div className="text-xs text-gray-500">Present + holidays</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.monthStatistics?.totalDays}
+                          <div className="font-medium">{user.hoursWorked || 0}h</div>
+                          <div className="text-xs text-gray-500">Biometric data</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.hoursWorked}h
+                          <div className="font-medium">{user.hoursWithHolidays || 0}h</div>
+                          <div className="text-xs text-gray-500">Hours + holiday hours</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {user.avgHoursPerDay || 0}h
+                          <div className="font-medium">{user.effectiveDaysWithHolidays || 0}</div>
+                          <div className="text-xs text-gray-500">(Hours/8) + holidays</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          ₹{user.adjustedSalary.toLocaleString()}
-                          <div className="text-xs text-gray-500">
-                            {user.calculationMethod === 'daily_wage' ? 
-                              `${user.daysPresent} days × ₹${user.dailyWage || 258}` :
-                              `${Math.round(user.attendancePercentage)}% of ₹${user.baseSalary || 8000}`
-                            }
-                          </div>
+                          <div className="font-medium">₹{(user.dayWiseSalary || user.adjustedSalary).toLocaleString()}</div>
+                          <div className="text-xs text-gray-500">Days × ₹{user.dailyWage || 258}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <div className="font-medium">₹{(user.proportionalSalary || user.adjustedSalary).toLocaleString()}</div>
+                          <div className="text-xs text-gray-500">Hours-based method</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -961,11 +992,10 @@ function AdminDashboard() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                          
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setAdjustingUser(user);
-                              setAdjustmentAmount(user.adjustedSalary.toString());
                               setShowAdjustModal(true);
                             }}
                             className="text-blue-600 hover:text-blue-900"
@@ -973,12 +1003,14 @@ function AdminDashboard() {
                             Adjust
                           </button>
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
                               try {
                                 await exposeAttendance(user._id);
                                 await fetchData();
+                                toast.success(`${user.exposed ? 'Hidden' : 'Exposed'} ${user.name}'s data`);
                               } catch (err) {
-                                alert('Error: ' + err.message);
+                                toast.error('Error: ' + err.message);
                               }
                             }}
                             className="text-green-600 hover:text-green-900"
@@ -1105,61 +1137,46 @@ function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {activeTab === 'settings' && (
+          <SettingsTab 
+            settings={settings}
+            setSettings={setSettings}
+            systemStats={systemStats}
+            setSystemStats={setSystemStats}
+            settingsLoading={settingsLoading}
+            setSettingsLoading={setSettingsLoading}
+            attendanceData={attendanceData}
+            fetchData={fetchData}
+          />
+        )}
       </div>
 
       {/* Salary Adjustment Modal */}
-      {showAdjustModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Adjust Salary for {adjustingUser?.name}
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">New Salary Amount</label>
-                  <input
-                    type="number"
-                    value={adjustmentAmount}
-                    onChange={(e) => setAdjustmentAmount(e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter new salary"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Reason for Adjustment</label>
-                  <textarea
-                    value={adjustmentReason}
-                    onChange={(e) => setAdjustmentReason(e.target.value)}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                    placeholder="Enter reason for salary adjustment"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3 mt-6">
-                <button
-                  onClick={() => {
-                    setShowAdjustModal(false);
-                    setAdjustingUser(null);
-                    setAdjustmentAmount('');
-                    setAdjustmentReason('');
-                  }}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAdjustSalary}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-                >
-                  Adjust Salary
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <SalaryAdjustmentModal
+        isOpen={showAdjustModal}
+        onClose={() => {
+          setShowAdjustModal(false);
+          setAdjustingUser(null);
+        }}
+        user={adjustingUser}
+        onIncrease={async (amount, reason) => {
+          const result = await increaseSalary(adjustingUser._id, amount, reason);
+          toast.success(`Salary increased by ₹${amount} for ${adjustingUser.name}`);
+          await fetchData();
+        }}
+        onDecrease={async (amount, reason) => {
+          const result = await decreaseSalary(adjustingUser._id, amount, reason);
+          toast.success(`Salary decreased by ₹${amount} for ${adjustingUser.name}`);
+          await fetchData();
+        }}
+        onManualAdjust={async (newSalary, reason) => {
+          await adjustSalary(adjustingUser._id, newSalary, reason);
+          toast.success(`Salary manually adjusted to ₹${newSalary} for ${adjustingUser.name}`);
+          await fetchData();
+        }}
+        loading={false}
+      />
 
       {/* Feedback Response Modal */}
       {showFeedbackModal && selectedFeedback && (
