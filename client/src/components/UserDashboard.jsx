@@ -155,7 +155,9 @@ function UserDashboard() {
               exposed: userData?.exposed,
               fullUserData: userData
             });
-            return userData && userData.exposed;
+            // Check if userData exists and has exposed property set to true
+            // Also handle case where API returns object with exposed: false
+            return userData && userData.exposed === true;
           })() ? (
             <motion.div
               initial={{ opacity: 0 }}
