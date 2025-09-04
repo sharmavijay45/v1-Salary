@@ -198,7 +198,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-blue-700">× Daily Wage:</span>
-                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / 31)}</span>
+                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate())}</span>
                           </div>
                           <div className="flex justify-between text-lg font-bold text-blue-900 bg-blue-100 p-3 rounded-lg">
                             <span>Day-wise Salary:</span>
@@ -236,7 +236,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-green-700">× Daily Wage:</span>
-                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / 31)}</span>
+                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate())}</span>
                           </div>
                           <div className="flex justify-between text-lg font-bold text-green-900 bg-green-100 p-3 rounded-lg">
                             <span>Hours-based Salary:</span>

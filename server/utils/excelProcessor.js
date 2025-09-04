@@ -376,7 +376,6 @@ export const processAttendanceExcel = async (filePath, holidays) => {
         employee.totalHoursWorked, 
         employee.totalDaysPresent, 
         monthYear, 
-        dailyWage,
         baseSalary,
         userConfig,
         holidays
@@ -949,7 +948,6 @@ export const processAttendanceCSV = async (filePath, holidays) => {
                 employee.totalHoursWorked, 
                 employee.totalDaysPresent, 
                 monthYear, 
-                dailyWage,
                 baseSalary,
                 userConfig,
                 holidays

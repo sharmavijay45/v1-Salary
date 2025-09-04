@@ -229,7 +229,6 @@ router.post('/calculate-salary', auth, async (req, res) => {
       parseFloat(hoursWorked),
       parseFloat(daysPresent),
       monthYear,
-      parseFloat(dailyWage),
       parseFloat(baseSalary)
     );
     

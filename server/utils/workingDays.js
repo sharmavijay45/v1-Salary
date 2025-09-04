@@ -95,8 +95,7 @@ export const calculateSalaryWithDailyWage = (
   hoursWorked, 
   daysPresent, 
   monthYear, 
-  dailyWage = 258, 
-  baseSalary = 8000, 
+  baseSalary = 8000,
   userConfig = {},
   holidays = 0
 ) => {
@@ -106,7 +105,6 @@ export const calculateSalaryWithDailyWage = (
       hoursWorked, 
       daysPresent, 
       monthYear, 
-      userConfig.dailyWage || dailyWage, 
       userConfig.baseSalary || baseSalary,
       holidays
     );
@@ -137,7 +135,11 @@ export const calculateSalaryWithDailyWage = (
     console.error('Error calculating salary with calendar service, falling back:', error);
     // Fallback to original calculation logic
     const workingDaysInMonth = getWorkingDaysInMonth(monthYear);
-    const requiredDays = Math.min(workingDaysInMonth, 27); // Max 27 working days as per requirement
+    const requiredDays = Math.min(workingDaysInMonth, 26); // Max 26 working days as per requirement
+
+    // Calculate daily wage from baseSalary
+    const daysInMonth = new Date(new Date(monthYear + '-01').getFullYear(), new Date(monthYear + '-01').getMonth() + 1, 0).getDate();
+    const dailyWage = (userConfig.baseSalary || baseSalary) / daysInMonth;
 
     // Calculate expected hours (8 hours per working day)
     const expectedHoursPerDay = 8;

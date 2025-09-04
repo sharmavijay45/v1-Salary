@@ -312,69 +312,49 @@ class CalendarService {
    * @param {number} adminHolidays - Number of holidays configured by admin (default: 0)
    * @returns {Object} Detailed salary calculation
    */
-  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage = 258, baseSalary = 8000, adminHolidays = 0) {
+  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, baseSalary, adminHolidays = 0) {
     try {
-      // Get working days info from calendar (include Saturdays, exclude only Sundays)
-      // Pass admin holidays to working days calculation
-      const workingDaysInfo = this.getWorkingDaysInMonth(monthYear, false, adminHolidays);
+      if (!baseSalary || baseSalary <= 0) {
+        throw new Error('Valid baseSalary is required for salary calculation.');
+      }
 
+      const workingDaysInfo = this.getWorkingDaysInMonth(monthYear, false, adminHolidays);
       const requiredDays = workingDaysInfo.requiredWorkingDays;
       
-      // Calculate expected hours (8 hours per working day)
+      const daysInMonth = moment(monthYear, 'YYYY-MM').daysInMonth();
+      const dailyWage = baseSalary / daysInMonth;
+
       const expectedHoursPerDay = 8;
       const expectedTotalHours = requiredDays * expectedHoursPerDay;
 
-      // Calculate effective days present by dividing total hours by expected daily hours
       const effectiveDaysPresent = hoursWorked / expectedHoursPerDay;
 
-      // Determine salary calculation method based on employee's base salary
-      let calculatedSalary;
-      let calculationMethod;
-      
-      if (baseSalary > 8000) {
-        // For employees with higher base salary, use proportional calculation
-        calculationMethod = 'proportional';
-        const attendanceRatio = Math.min(effectiveDaysPresent / requiredDays, 1);
-        calculatedSalary = Math.round(baseSalary * attendanceRatio);
-      } else {
-        // For standard employees, use daily wage calculation
-        calculationMethod = 'daily_wage';
-        calculatedSalary = Math.round(effectiveDaysPresent * dailyWage);
-      }
+      const calculationMethod = 'proportional';
+      const attendanceRatio = Math.min(effectiveDaysPresent / requiredDays, 1);
+      const calculatedSalary = Math.round(baseSalary * attendanceRatio);
 
-      // Calculate percentages
       const attendancePercentage = (effectiveDaysPresent / requiredDays) * 100;
       const hoursPercentage = (hoursWorked / expectedTotalHours) * 100;
 
-      // Calculate daily and monthly hour averages
       const avgHoursPerDay = effectiveDaysPresent > 0 ? hoursWorked / effectiveDaysPresent : 0;
       const avgHoursPerMonth = hoursWorked;
 
       return {
-        // Calendar and working days info
         workingDaysInfo,
         requiredDays,
-        
-        // Attendance data
         daysPresent: Math.round(effectiveDaysPresent * 100) / 100,
         hoursWorked: Math.round(hoursWorked * 100) / 100,
         expectedTotalHours,
         avgHoursPerDay: Math.round(avgHoursPerDay * 100) / 100,
         avgHoursPerMonth: Math.round(avgHoursPerMonth * 100) / 100,
-        
-        // Salary calculation
-        dailyWage,
+        dailyWage: Math.round(dailyWage * 100) / 100,
         baseSalary,
         calculationMethod,
         calculatedSalary: Math.max(0, calculatedSalary),
         adjustedSalary: Math.max(0, calculatedSalary),
-        
-        // Percentages
         attendancePercentage: Math.round(attendancePercentage * 100) / 100,
         hoursPercentage: Math.round(hoursPercentage * 100) / 100,
         salaryPercentage: Math.round(attendancePercentage * 100) / 100,
-        
-        // Detailed breakdown for UI display
         salaryBreakdown: {
           baseSalary,
           workingDaysInMonth: workingDaysInfo.workingDays,
@@ -382,10 +362,8 @@ class CalendarService {
           daysWorked: effectiveDaysPresent,
           hoursWorked,
           expectedHours: expectedTotalHours,
-          dailyRate: dailyWage,
-          calculationFormula: calculationMethod === 'daily_wage' 
-            ? `${effectiveDaysPresent} days × ₹${dailyWage} = ₹${calculatedSalary}`
-            : `₹${baseSalary} × (${effectiveDaysPresent}/${requiredDays}) = ₹${calculatedSalary}`,
+          dailyRate: Math.round(dailyWage * 100) / 100,
+          calculationFormula: `₹${baseSalary} × (${effectiveDaysPresent.toFixed(2)} / ${requiredDays}) = ₹${calculatedSalary}`,
           holidays: workingDaysInfo.holidays,
           nonWorkingDays: workingDaysInfo.nonWorkingDays
         }
@@ -393,24 +371,26 @@ class CalendarService {
     } catch (error) {
       console.error('Error calculating dynamic salary:', error);
       
-      // Fallback calculation
-      const requiredDays = 27;
+      // Calculate proper daily wage from baseSalary and month days
+      const daysInMonth = moment(monthYear, 'YYYY-MM').daysInMonth();
+      const dailyWage = baseSalary / daysInMonth; // Fallback - corrected formula
+      const requiredDays = 26;
       const expectedTotalHours = requiredDays * 8;
       const effectiveDaysPresent = hoursWorked / 8;
       const calculatedSalary = Math.round(effectiveDaysPresent * dailyWage);
       const avgHoursPerDay = effectiveDaysPresent > 0 ? hoursWorked / effectiveDaysPresent : 0;
 
       return {
-        workingDaysInfo: { workingDays: 27, requiredWorkingDays: 27, holidays: [], nonWorkingDays: [] },
+        workingDaysInfo: { workingDays: 26, requiredWorkingDays: 26, holidays: [], nonWorkingDays: [] },
         requiredDays,
         daysPresent: Math.round(effectiveDaysPresent * 100) / 100,
         hoursWorked: Math.round(hoursWorked * 100) / 100,
         expectedTotalHours,
         avgHoursPerDay: Math.round(avgHoursPerDay * 100) / 100,
         avgHoursPerMonth: Math.round(hoursWorked * 100) / 100,
-        dailyWage,
+        dailyWage: Math.round(dailyWage * 100) / 100,
         baseSalary,
-        calculationMethod: 'daily_wage',
+        calculationMethod: 'proportional_fallback',
         calculatedSalary: Math.max(0, calculatedSalary),
         adjustedSalary: Math.max(0, calculatedSalary),
         attendancePercentage: (effectiveDaysPresent / requiredDays) * 100,
@@ -418,13 +398,13 @@ class CalendarService {
         salaryPercentage: (effectiveDaysPresent / requiredDays) * 100,
         salaryBreakdown: {
           baseSalary,
-          workingDaysInMonth: 27,
+          workingDaysInMonth: 26,
           requiredWorkingDays: requiredDays,
           daysWorked: effectiveDaysPresent,
           hoursWorked,
           expectedHours: expectedTotalHours,
-          dailyRate: dailyWage,
-          calculationFormula: `${effectiveDaysPresent} days × ₹${dailyWage} = ₹${calculatedSalary}`,
+          dailyRate: Math.round(dailyWage * 100) / 100,
+          calculationFormula: `${effectiveDaysPresent} days × ₹${dailyWage.toFixed(2)} = ₹${calculatedSalary}`,
           holidays: [],
           nonWorkingDays: []
         }
@@ -485,8 +465,8 @@ export default calendarService;
 // Export individual functions for backward compatibility
 export const getWorkingDaysInMonth = (monthYear) => calendarService.getWorkingDaysInMonth(monthYear);
 export const getHolidaysForMonth = (monthYear) => calendarService.getHolidaysForMonth(monthYear);
-export const calculateDynamicSalary = (hoursWorked, daysPresent, monthYear, dailyWage, baseSalary, holidays) => 
-  calendarService.calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage, baseSalary, holidays);
+export const calculateDynamicSalary = (hoursWorked, daysPresent, monthYear, baseSalary, holidays) => 
+  calendarService.calculateDynamicSalary(hoursWorked, daysPresent, monthYear, baseSalary, holidays);
 export const getSundaysInMonth = (monthYear) => calendarService.getSundaysInMonth(monthYear);
 export const isHoliday = (date) => calendarService.isHoliday(date);
 export const isSunday = (date) => calendarService.isSunday(date);
