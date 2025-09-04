@@ -172,7 +172,11 @@ router.post('/upload', auth, upload.fields([{ name: 'excelFile', maxCount: 1 }, 
 
       // Use user's baseSalary from database, fallback to default
       const userBaseSalary = user ? (user.baseSalary || 8000) : 8000;
-      const userDailyWage = user ? (user.dailyWage || Math.round(userBaseSalary / 26)) : Math.round(userBaseSalary / 26);
+      
+      // Calculate daily wage based on actual days in month for proportional calculation
+      const [year, month] = monthYear.split('-').map(Number);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const userDailyWage = user ? (user.dailyWage || Math.round(userBaseSalary / daysInMonth)) : Math.round(userBaseSalary / daysInMonth);
 
       // Two salary methods with 26-day cap
       const cappedPayableDays = Math.min(payableDays, 26);
@@ -592,25 +596,38 @@ router.get('/user/:userId', auth, async (req, res) => {
     if (!data && currentUser.name === 'Vijay Sharma') {
       console.log('🔧 Creating demo attendance record for Vijay Sharma...');
       
+      // Calculate salary based on user's actual baseSalary and month length
+      const userBaseSalary = currentUser.baseSalary || 8000;
+      
+      // Calculate daily wage based on month length (August 2025 has 31 days)
+      const monthYear = '2025-08';
+      const [year, month] = monthYear.split('-').map(Number);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      
+      // Calculate daily wage: baseSalary / days in month
+      const userDailyWage = Math.round(userBaseSalary / daysInMonth);
+      const daysPresent = 22;
+      const calculatedSalary = daysPresent * userDailyWage;
+      
       const demoRecord = new Attendance({
         name: currentUser.name,
         userId: currentUser._id.toString(),
         employeeId: currentUser.employeeId,
         dept: 'IT',
-        daysPresent: 22,
+        daysPresent: daysPresent,
         totalWorkingDays: 26,
         hoursWorked: 176,
-        salaryPercentage: 84.6,
-        baseSalary: 6708,
-        calculatedSalary: 5676,
-        adjustedSalary: 5676,
+        salaryPercentage: (daysPresent / 26) * 100,
+        baseSalary: userBaseSalary,
+        calculatedSalary: calculatedSalary,
+        adjustedSalary: calculatedSalary,
         monthYear: '2025-08',
         exposed: true,
-        dayWiseSalary: 5676,
-        proportionalSalary: 5676,
-        dailyWage: 258,
-        payableDays: 22,
-        effectiveDaysWithHolidays: 22,
+        dayWiseSalary: calculatedSalary,
+        proportionalSalary: calculatedSalary,
+        dailyWage: userDailyWage,
+        payableDays: daysPresent,
+        effectiveDaysWithHolidays: daysPresent,
         hoursWithHolidays: 176,
         attendanceDetails: [],
         createdAt: new Date(),
@@ -619,7 +636,7 @@ router.get('/user/:userId', auth, async (req, res) => {
       
       await demoRecord.save();
       data = demoRecord;
-      console.log('✅ Created demo record for:', currentUser.name);
+      console.log(`✅ Created demo record for: ${currentUser.name} with Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage} (${daysInMonth}-day month), Calculated Salary: ₹${calculatedSalary}`);
     }  
 
     // If still no data found, try direct database search (fallback)
@@ -693,11 +710,15 @@ router.get('/user/:userId', auth, async (req, res) => {
       data.exposed = true;
     }
 
-    // Add working days information
+    // Add working days information with admin holidays
     try {
-      const workingDaysInfo = calendarService.getWorkingDaysInMonth(data.monthYear, false);
+      // Get admin holidays for this month from database
+      const adminHolidays = await Holiday.find({ monthYear: data.monthYear, isActive: true });
+      const adminHolidaysCount = adminHolidays.length;
+
+      const workingDaysInfo = calendarService.getWorkingDaysInMonth(data.monthYear, false, adminHolidaysCount);
       data.workingDaysInfo = workingDaysInfo;
-      console.log('📅 Added working days info for month:', data.monthYear);
+      console.log('📅 Added working days info for month:', data.monthYear, 'with', adminHolidaysCount, 'admin holidays');
     } catch (calendarError) {
       console.warn('⚠️ Could not fetch working days info:', calendarError.message);
     }
@@ -769,8 +790,12 @@ router.get('/working-days/:monthYear', auth, async (req, res) => {
     const { monthYear } = req.params;
     if (!/^[0-9]{4}-[0-9]{2}$/.test(monthYear)) return res.status(400).json({ message: 'Invalid month format. Use YYYY-MM' });
 
+    // Get admin holidays for this month
+    const adminHolidays = await Holiday.find({ monthYear, isActive: true });
+    const adminHolidaysCount = adminHolidays.length;
+
     const monthStats = getMonthStatistics(monthYear);
-    const workingDays = getWorkingDaysInMonth(monthYear);
+    const workingDays = getWorkingDaysInMonth(monthYear, adminHolidaysCount);
     const sundays = getSundaysInMonth(monthYear);
 
     res.json({
@@ -779,6 +804,7 @@ router.get('/working-days/:monthYear', auth, async (req, res) => {
       workingDays,
       sundays: sundays.length,
       sundayDates: sundays,
+      adminHolidays: adminHolidaysCount,
       requiredWorkingDays: Math.min(workingDays, 26),
       monthStatistics: monthStats
     });
@@ -831,8 +857,13 @@ router.put('/expose-all-current', auth, async (req, res) => {
 router.get('/working-days', auth, async (req, res) => {
   try {
     const currentMonth = new Date().toISOString().slice(0, 7);
+
+    // Get admin holidays for current month
+    const adminHolidays = await Holiday.find({ monthYear: currentMonth, isActive: true });
+    const adminHolidaysCount = adminHolidays.length;
+
     const monthStats = getMonthStatistics(currentMonth);
-    const workingDays = getWorkingDaysInMonth(currentMonth);
+    const workingDays = getWorkingDaysInMonth(currentMonth, adminHolidaysCount);
     const sundays = getSundaysInMonth(currentMonth);
 
     res.json({
@@ -841,6 +872,7 @@ router.get('/working-days', auth, async (req, res) => {
       workingDays,
       sundays: sundays.length,
       sundayDates: sundays,
+      adminHolidays: adminHolidaysCount,
       requiredWorkingDays: Math.min(workingDays, 26),
       monthStatistics: monthStats
     });
@@ -856,6 +888,10 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
     const { monthYear } = req.params;
     const currentMonthYear = monthYear || new Date().toISOString().slice(0, 7);
 
+    // Get admin holidays for the month
+    const adminHolidays = await Holiday.find({ monthYear: currentMonthYear, isActive: true });
+    const adminHolidaysCount = adminHolidays.length;
+
     const attendanceRecords = await Attendance.find({ monthYear: currentMonthYear });
     if (attendanceRecords.length === 0) {
       return res.json({
@@ -865,7 +901,8 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
         totalSalary: 0,
         avgDaysPerEmployee: 0,
         avgSalaryPerEmployee: 0,
-        dailyWage: 258,
+        dailyWage: 258, // Fixed daily wage for 31-day months (default)
+        adminHolidays: adminHolidaysCount,
         monthStats: getMonthStatistics(currentMonthYear)
       });
     }
@@ -876,6 +913,9 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
     const avgSalaryPerEmployee = totalSalary / attendanceRecords.length;
     const monthStats = getMonthStatistics(currentMonthYear);
 
+    // Calculate working days with admin holidays
+    const workingDaysWithHolidays = getWorkingDaysInMonth(currentMonthYear, adminHolidaysCount);
+
     res.json({
       monthYear: currentMonthYear,
       totalEmployees: attendanceRecords.length,
@@ -883,10 +923,11 @@ router.get('/daily-stats/:monthYear?', auth, async (req, res) => {
       totalSalary: Math.round(totalSalary),
       avgDaysPerEmployee: Math.round(avgDaysPerEmployee * 100) / 100,
       avgSalaryPerEmployee: Math.round(avgSalaryPerEmployee),
-      dailyWage: 258,
+      dailyWage: Math.round(8000 / 26), // Calculate from default base salary
+      adminHolidays: adminHolidaysCount,
       monthStats,
-      expectedTotalDays: monthStats.requiredWorkingDays * attendanceRecords.length,
-      attendanceEfficiency: Math.round((totalDays / (monthStats.requiredWorkingDays * attendanceRecords.length)) * 100 * 100) / 100
+      expectedTotalDays: workingDaysWithHolidays * attendanceRecords.length,
+      attendanceEfficiency: Math.round((totalDays / (workingDaysWithHolidays * attendanceRecords.length)) * 100 * 100) / 100
     });
   } catch (err) {
     console.error('Daily stats calculation error:', err);
@@ -1072,9 +1113,9 @@ router.put('/salary-decrease/:id', auth, async (req, res) => {
     attendance.updatedAt = new Date();
     await attendance.save();
 
-    res.json({ 
-      message: 'Salary decreased successfully', 
-      attendance, 
+    res.json({
+      message: 'Salary decreased successfully',
+      attendance,
       adjustment,
       originalSalary,
       newSalary,
@@ -1082,6 +1123,81 @@ router.put('/salary-decrease/:id', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Salary decrease error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Fix Salary Discrepancy Route
+router.put('/fix-salary-discrepancy/:id', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
+
+    const attendance = await Attendance.findById(req.params.id);
+    if (!attendance) return res.status(404).json({ message: 'Attendance record not found' });
+
+    // Find the user to get the correct baseSalary
+    const user = await User.findById(attendance.userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const correctBaseSalary = user.baseSalary || 8000;
+    const currentBaseSalary = attendance.baseSalary || 8000;
+
+    // If there's a discrepancy, recalculate the salary
+    if (correctBaseSalary !== currentBaseSalary) {
+      console.log(`Fixing salary discrepancy for ${attendance.name}: DB shows ₹${correctBaseSalary}, attendance shows ₹${currentBaseSalary}`);
+
+      // Recalculate daily wage based on correct base salary
+      const [year, month] = attendance.monthYear.split('-').map(Number);
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const correctDailyWage = Math.round(correctBaseSalary / daysInMonth);
+
+      // Get admin holidays for this month
+      const adminHolidays = await Holiday.find({ monthYear: attendance.monthYear, isActive: true });
+      const adminHolidaysCount = adminHolidays.length;
+
+      // Recalculate working days
+      const workingDaysInfo = calendarService.getWorkingDaysInMonth(attendance.monthYear, false, adminHolidaysCount);
+      const workingDays = workingDaysInfo.workingDays;
+
+      // Recalculate salaries
+      const cappedPayableDays = Math.min(attendance.payableDays, 26);
+      const cappedEffectiveDays = Math.min(attendance.effectiveDaysWithHolidays, 26);
+      const dayWiseSalary = Math.round(cappedPayableDays * correctDailyWage);
+      const proportionalSalary = Math.round(cappedEffectiveDays * correctDailyWage);
+      const calculatedSalary = dayWiseSalary;
+
+      // Update attendance record
+      attendance.baseSalary = correctBaseSalary;
+      attendance.dailyWage = correctDailyWage;
+      attendance.dayWiseSalary = dayWiseSalary;
+      attendance.proportionalSalary = proportionalSalary;
+      attendance.calculatedSalary = calculatedSalary;
+      attendance.adjustedSalary = calculatedSalary;
+      attendance.updatedAt = new Date();
+
+      await attendance.save();
+
+      res.json({
+        message: 'Salary discrepancy fixed successfully',
+        attendance,
+        changes: {
+          oldBaseSalary: currentBaseSalary,
+          newBaseSalary: correctBaseSalary,
+          oldDailyWage: attendance.dailyWage,
+          newDailyWage: correctDailyWage,
+          oldCalculatedSalary: attendance.calculatedSalary,
+          newCalculatedSalary: calculatedSalary
+        }
+      });
+    } else {
+      res.json({
+        message: 'No salary discrepancy found',
+        attendance,
+        baseSalary: correctBaseSalary
+      });
+    }
+  } catch (err) {
+    console.error('Fix salary discrepancy error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });

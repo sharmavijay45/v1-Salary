@@ -73,7 +73,7 @@ ${summary.map(emp =>
 Please provide a detailed, professional analysis with specific metrics, actionable recommendations, and strategic insights for HR management and leadership decision-making.`;
 
     const response = await axios.post(
-      `${process.env.GROQ_API_URL}/chat/completions`,
+      `${process.env.GROQ_API_URL}/v1/chat/completions`,
       {
         model: "llama-3.3-70b-versatile",
         messages: [

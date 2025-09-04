@@ -196,41 +196,36 @@ class CalendarService {
   }
 
   /**
-   * Calculate working days in a month (excluding weekends and holidays)
+   * Calculate working days in a month (excluding weekends and admin holidays)
    * @param {string} monthYear - Format: "YYYY-MM"
    * @param {boolean} excludeSaturdays - Whether to exclude Saturdays (default: true)
+   * @param {number} adminHolidays - Number of holidays configured by admin (default: 0)
    * @returns {Object} Detailed working days calculation
    */
-  getWorkingDaysInMonth(monthYear, excludeSaturdays = true) {
+  getWorkingDaysInMonth(monthYear, excludeSaturdays = true, adminHolidays = 0) {
     try {
       const startOfMonth = moment(monthYear, 'YYYY-MM').startOf('month');
       const endOfMonth = moment(monthYear, 'YYYY-MM').endOf('month');
       const totalDays = endOfMonth.date();
-      
-      // Get holidays for this month
-      const holidays = this.getHolidaysForMonth(monthYear);
-      const holidayDates = new Set(holidays.map(h => h.date));
-      
+
       let workingDays = 0;
       let weekends = 0;
-      let holidayCount = 0;
       let sundayCount = 0;
       let saturdayCount = 0;
-      
+
       const workingDaysList = [];
       const nonWorkingDays = [];
-      
+
       let currentDate = startOfMonth.clone();
-      
+
       while (currentDate.isSameOrBefore(endOfMonth)) {
         const dateStr = currentDate.format('YYYY-MM-DD');
         const dayOfWeek = currentDate.day();
-        const isHoliday = holidayDates.has(dateStr);
-        
+
         // Check if it's a working day
         let isWorkingDay = true;
         let reason = '';
-        
+
         if (dayOfWeek === 0) { // Sunday
           isWorkingDay = false;
           reason = 'Sunday';
@@ -241,13 +236,8 @@ class CalendarService {
           reason = 'Saturday';
           weekends++;
           saturdayCount++;
-        } else if (isHoliday) {
-          isWorkingDay = false;
-          const holiday = holidays.find(h => h.date === dateStr);
-          reason = `Holiday: ${holiday.name}`;
-          holidayCount++;
         }
-        
+
         if (isWorkingDay) {
           workingDays++;
           workingDaysList.push(dateStr);
@@ -258,30 +248,33 @@ class CalendarService {
             dayName: currentDate.format('dddd')
           });
         }
-        
+
         currentDate.add(1, 'day');
       }
-      
-      // Calculate required working days (max 27 as per business rule)
-      const requiredWorkingDays = Math.min(workingDays, 27);
-      
+
+      // Subtract admin holidays from working days
+      const finalWorkingDays = Math.max(0, workingDays - adminHolidays);
+
+      // Calculate required working days (max 26 as per business rule)
+      const requiredWorkingDays = Math.min(finalWorkingDays, 26);
+
       return {
         monthYear,
         totalDays,
-        workingDays,
+        workingDays: finalWorkingDays,
         requiredWorkingDays,
         weekends,
-        holidayCount,
+        holidayCount: adminHolidays,
         sundayCount,
         saturdayCount,
-        holidays: holidays,
+        holidays: [], // No government holidays used
         workingDaysList,
         nonWorkingDays,
         calculation: {
           totalDays,
           minusWeekends: totalDays - weekends,
-          minusHolidays: totalDays - weekends - holidayCount,
-          finalWorkingDays: workingDays
+          minusAdminHolidays: totalDays - weekends - adminHolidays,
+          finalWorkingDays: finalWorkingDays
         }
       };
     } catch (error) {
@@ -290,10 +283,10 @@ class CalendarService {
       return {
         monthYear,
         totalDays: 30,
-        workingDays: 22,
-        requiredWorkingDays: 22,
+        workingDays: Math.max(0, 22 - adminHolidays),
+        requiredWorkingDays: Math.min(Math.max(0, 22 - adminHolidays), 26),
         weekends: 8,
-        holidayCount: 0,
+        holidayCount: adminHolidays,
         sundayCount: 4,
         saturdayCount: 4,
         holidays: [],
@@ -302,8 +295,8 @@ class CalendarService {
         calculation: {
           totalDays: 30,
           minusWeekends: 22,
-          minusHolidays: 22,
-          finalWorkingDays: 22
+          minusAdminHolidays: Math.max(0, 22 - adminHolidays),
+          finalWorkingDays: Math.max(0, 22 - adminHolidays)
         }
       };
     }
@@ -316,17 +309,14 @@ class CalendarService {
    * @param {string} monthYear - Format: "YYYY-MM"
    * @param {number} dailyWage - Daily wage rate (default: 258)
    * @param {number} baseSalary - Employee's base salary (default: 8000)
+   * @param {number} adminHolidays - Number of holidays configured by admin (default: 0)
    * @returns {Object} Detailed salary calculation
    */
-  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage = 258, baseSalary = 8000, holidays = null) {
+  calculateDynamicSalary(hoursWorked, daysPresent, monthYear, dailyWage = 258, baseSalary = 8000, adminHolidays = 0) {
     try {
       // Get working days info from calendar (include Saturdays, exclude only Sundays)
-      const workingDaysInfo = this.getWorkingDaysInMonth(monthYear, false);
-      
-      if (holidays !== null && typeof holidays === 'number') {
-        workingDaysInfo.workingDays -= holidays;
-        workingDaysInfo.holidayCount += holidays;
-      }
+      // Pass admin holidays to working days calculation
+      const workingDaysInfo = this.getWorkingDaysInMonth(monthYear, false, adminHolidays);
 
       const requiredDays = workingDaysInfo.requiredWorkingDays;
       
@@ -392,7 +382,7 @@ class CalendarService {
           daysWorked: effectiveDaysPresent,
           hoursWorked,
           expectedHours: expectedTotalHours,
-          dailyRate: calculationMethod === 'daily_wage' ? dailyWage : Math.round(baseSalary / requiredDays),
+          dailyRate: dailyWage,
           calculationFormula: calculationMethod === 'daily_wage' 
             ? `${effectiveDaysPresent} days × ₹${dailyWage} = ₹${calculatedSalary}`
             : `₹${baseSalary} × (${effectiveDaysPresent}/${requiredDays}) = ₹${calculatedSalary}`,

@@ -443,13 +443,13 @@ function SettingsTab({
                               <p className="text-xs text-gray-500">Base Salary</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-medium">₹{user.dailyWage || 258}</p>
+                              <p className="text-sm font-medium">₹{user.dailyWage || Math.round((user.baseSalary || 8000) / 31)}</p>
                               <p className="text-xs text-gray-500">Daily Wage</p>
                             </div>
                             <button
                               onClick={() => {
                                 const newBaseSalary = prompt('Enter new base salary:', user.baseSalary || 8000);
-                                const newDailyWage = prompt('Enter new daily wage:', user.dailyWage || 258);
+                                const newDailyWage = prompt('Enter new daily wage:', user.dailyWage || Math.round((user.baseSalary || 8000) / 31));
                                 if (newBaseSalary && newDailyWage) {
                                   handleUserSalaryUpdate(user.userId, Number(newBaseSalary), Number(newDailyWage));
                                 }
@@ -485,7 +485,7 @@ function SettingsTab({
                               const updates = attendanceData.map(user => ({
                                 userId: user.userId,
                                 baseSalary: Math.round((user.baseSalary || 8000) * (1 + percentage / 100)),
-                                dailyWage: Math.round((user.dailyWage || 258) * (1 + percentage / 100))
+                                dailyWage: Math.round((user.dailyWage || Math.round((user.baseSalary || 8000) / 31)) * (1 + percentage / 100))
                               }));
                               setBulkSalaryUpdates(updates);
                               e.target.value = '';

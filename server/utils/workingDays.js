@@ -4,26 +4,27 @@ import moment from 'moment';
 import calendarService from './calendarService.js';
 
 /**
- * Calculate working days in a month excluding Sundays and holidays
+ * Calculate working days in a month excluding Sundays and admin holidays
  * Now enhanced with calendar service integration
  * @param {string} monthYear - Format: "YYYY-MM"
- * @returns {number} Number of working days (excluding Sundays and holidays)
+ * @param {number} adminHolidays - Number of holidays configured by admin (default: 0)
+ * @returns {number} Number of working days (excluding Sundays and admin holidays)
  */
-export const getWorkingDaysInMonth = (monthYear) => {
+export const getWorkingDaysInMonth = (monthYear, adminHolidays = 0) => {
   try {
     // Use calendar service for enhanced calculation
     // Set excludeSaturdays to false to include Saturdays as working days (only exclude Sundays)
-    const workingDaysInfo = calendarService.getWorkingDaysInMonth(monthYear, false);
+    const workingDaysInfo = calendarService.getWorkingDaysInMonth(monthYear, false, adminHolidays);
     return workingDaysInfo.workingDays;
   } catch (error) {
     console.error('Error calculating working days with calendar service, falling back:', error);
     // Fallback to old logic
     const startOfMonth = moment(monthYear, 'YYYY-MM').startOf('month');
     const endOfMonth = moment(monthYear, 'YYYY-MM').endOf('month');
-    
+
     let workingDays = 0;
     let currentDate = startOfMonth.clone();
-    
+
     while (currentDate.isSameOrBefore(endOfMonth)) {
       // Sunday is 0 in moment.js
       if (currentDate.day() !== 0) {
@@ -31,8 +32,9 @@ export const getWorkingDaysInMonth = (monthYear) => {
       }
       currentDate.add(1, 'day');
     }
-    
-    return workingDays;
+
+    // Subtract admin holidays
+    return Math.max(0, workingDays - adminHolidays);
   }
 };
 

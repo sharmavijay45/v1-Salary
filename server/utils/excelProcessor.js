@@ -323,7 +323,14 @@ export const processAttendanceExcel = async (filePath, holidays) => {
         if (user) {
           // Use individual base salary from database
           userBaseSalary = user.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000;
-          userDailyWage = user.dailyWage || parseInt(process.env.DAILY_WAGE) || 258;
+          
+          // Calculate daily wage based on month length and proportional to baseSalary
+          const monthYear = getCurrentMonthYear();
+          const [year, month] = monthYear.split('-').map(Number);
+          const daysInMonth = new Date(year, month, 0).getDate();
+          
+          // Calculate daily wage: baseSalary / days in month
+          userDailyWage = user.dailyWage || Math.round(userBaseSalary / daysInMonth);
           
           userConfig = {
             baseSalary: userBaseSalary,
@@ -333,9 +340,16 @@ export const processAttendanceExcel = async (filePath, holidays) => {
             expectedWorkingHours: user.expectedWorkingHours || 8,
             overrideSettings: user.overrideSettings || {}
           };
-          console.log(`Found user config for ${employee.name}: Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage}`);
+          console.log(`Found user config for ${employee.name}: Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage} (${daysInMonth}-day month)`);
         } else {
-          console.log(`No user config found for ${employee.name}, using defaults: Base Salary: ₹${userBaseSalary}`);
+          // Calculate daily wage: baseSalary / days in month
+          const monthYear = getCurrentMonthYear();
+          const [year, month] = monthYear.split('-').map(Number);
+          const daysInMonth = new Date(year, month, 0).getDate();
+          
+          userDailyWage = Math.round(userBaseSalary / daysInMonth);
+          
+          console.log(`No user config found for ${employee.name}, using defaults: Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage} (${daysInMonth}-day month)`);
         }
       } catch (error) {
         console.error(`Error fetching user config for ${employee.name}:`, error);
@@ -343,8 +357,8 @@ export const processAttendanceExcel = async (filePath, holidays) => {
       
       // Use enhanced salary calculation with calendar service
       const monthYear = getCurrentMonthYear();
-      const dailyWage = userConfig.dailyWage || parseInt(process.env.DAILY_WAGE) || 258;
-      const baseSalary = userConfig.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000;
+      const dailyWage = userConfig.dailyWage || userDailyWage;
+      const baseSalary = userConfig.baseSalary || userBaseSalary;
 
       // Get configurable divisors from environment
       const hoursToDaysDivisor = parseInt(process.env.HOURS_TO_DAYS_DIVISOR) || 24;
@@ -874,17 +888,41 @@ export const processAttendanceCSV = async (filePath, holidays) => {
                 });
                 
                 if (user) {
+                  const userBaseSalary = user.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000;
+                  
+                  // Calculate daily wage based on month length and proportional to baseSalary
+                  const monthYear = getCurrentMonthYear();
+                  const [year, month] = monthYear.split('-').map(Number);
+                  const daysInMonth = new Date(year, month, 0).getDate();
+                  
+                  // Calculate daily wage: baseSalary / days in month
+                  const userDailyWage = user.dailyWage || Math.round(userBaseSalary / daysInMonth);
+                  
                   userConfig = {
-                    baseSalary: user.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000,
-                    dailyWage: user.dailyWage || parseInt(process.env.DAILY_WAGE) || 258,
+                    baseSalary: userBaseSalary,
+                    dailyWage: userDailyWage,
                     salaryType: user.salaryType || 'daily_wage',
                     salaryCalculationMethod: user.salaryCalculationMethod || 'daily_wage',
                     expectedWorkingHours: user.expectedWorkingHours || 8,
                     overrideSettings: user.overrideSettings || {}
                   };
-                  console.log(`Found user config for ${employee.name}:`, userConfig);
+                  console.log(`Found user config for ${employee.name}: Base Salary: ₹${userBaseSalary}, Daily Wage: ₹${userDailyWage} (${daysInMonth}-day month)`);
                 } else {
-                  console.log(`No user config found for ${employee.name}, using defaults`);
+                  const defaultBaseSalary = parseInt(process.env.DEFAULT_SALARY) || 8000;
+                  
+                  // Calculate daily wage based on month length and proportional to baseSalary
+                  const monthYear = getCurrentMonthYear();
+                  const [year, month] = monthYear.split('-').map(Number);
+                  const daysInMonth = new Date(year, month, 0).getDate();
+                  
+                  // Calculate daily wage: baseSalary / days in month
+                  const defaultDailyWage = Math.round(defaultBaseSalary / daysInMonth);
+                  
+                  userConfig = {
+                    baseSalary: defaultBaseSalary,
+                    dailyWage: defaultDailyWage
+                  };
+                  console.log(`No user config found for ${employee.name}, using defaults: Base Salary: ₹${defaultBaseSalary}, Daily Wage: ₹${defaultDailyWage} (${daysInMonth}-day month)`);
                 }
               } catch (error) {
                 console.error(`Error fetching user config for ${employee.name}:`, error);
@@ -892,8 +930,8 @@ export const processAttendanceCSV = async (filePath, holidays) => {
               
               // Use enhanced salary calculation with calendar service
               const monthYear = getCurrentMonthYear();
-              const dailyWage = userConfig.dailyWage || parseInt(process.env.DAILY_WAGE) || 258;
-              const baseSalary = userConfig.baseSalary || parseInt(process.env.DEFAULT_SALARY) || 8000;
+              const dailyWage = userConfig.dailyWage;
+              const baseSalary = userConfig.baseSalary;
               
               // Get configurable divisors from environment
               const hoursToDaysDivisor = parseInt(process.env.HOURS_TO_DAYS_DIVISOR) || 24;

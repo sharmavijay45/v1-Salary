@@ -357,7 +357,7 @@ function UserDashboard() {
 
                 <div className="mt-4 p-3 bg-blue-100 rounded-lg">
                   <p className="text-xs text-blue-700">
-                    <strong>26-Day Cap Applied:</strong> Both methods are capped at 26 days × ₹258 = ₹6,708 maximum salary per month.
+                    <strong>26-Day Cap Applied:</strong> Both methods are capped at 26 days × employee daily wage. Daily wage = Base Salary ÷ Days in Month.
                     WFH days automatically credit 8 hours. Final salary uses the day-wise method result.
                   </p>
                 </div>
@@ -378,7 +378,7 @@ function UserDashboard() {
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900">Working Days ({userData.monthYear})</h3>
-                      <p className="text-sm text-gray-600">Calendar-based calculation with holidays</p>
+                      <p className="text-sm text-gray-600">Total days - Sundays - Admin holidays</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -387,7 +387,7 @@ function UserDashboard() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                   <div className="bg-blue-50 rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-blue-600">{userData.monthStatistics.totalDays}</p>
                     <p className="text-xs text-gray-600">Total Days</p>
@@ -398,7 +398,11 @@ function UserDashboard() {
                   </div>
                   <div className="bg-orange-50 rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-orange-600">{userData.monthStatistics.holidayCount || 0}</p>
-                    <p className="text-xs text-gray-600">Holidays</p>
+                    <p className="text-xs text-gray-600">Admin Holidays</p>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-red-600">{userData.monthStatistics.holidays?.length || 0}</p>
+                    <p className="text-xs text-gray-600">Govt Holidays</p>
                   </div>
                   <div className="bg-purple-50 rounded-lg p-3 text-center">
                     <p className="text-xl font-bold text-purple-600">{userData.monthStatistics.sundays || 0}</p>

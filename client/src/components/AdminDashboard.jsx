@@ -544,7 +544,7 @@ function AdminDashboard() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                     <div className="bg-blue-50 rounded-lg p-3 text-center">
                       <p className="text-xl font-bold text-blue-600">{workingDaysInfo.totalDays}</p>
                       <p className="text-xs text-gray-600">Total Days</p>
@@ -554,8 +554,12 @@ function AdminDashboard() {
                       <p className="text-xs text-gray-600">Working Days</p>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-3 text-center">
-                      <p className="text-xl font-bold text-orange-600">{holidaysThisMonth.length}</p>
-                      <p className="text-xs text-gray-600">Holidays</p>
+                      <p className="text-xl font-bold text-orange-600">{workingDaysInfo.holidayCount || holidaysThisMonth.length}</p>
+                      <p className="text-xs text-gray-600">Admin Holidays</p>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3 text-center">
+                      <p className="text-xl font-bold text-red-600">{holidaysThisMonth.length}</p>
+                      <p className="text-xs text-gray-600">Govt Holidays</p>
                     </div>
                     <div className="bg-purple-50 rounded-lg p-3 text-center">
                       <p className="text-xl font-bold text-purple-600">{workingDaysInfo.sundays || 0}</p>
@@ -590,11 +594,12 @@ function AdminDashboard() {
                   <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <div className="flex items-center space-x-2 mb-1">
                       <Calculator className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm font-medium text-blue-900">Enhanced Salary Calculation</span>
+                      <span className="text-sm font-medium text-blue-900">Updated Working Days Calculation</span>
                     </div>
                     <p className="text-xs text-blue-700">
-                      Salaries are calculated using dynamic working days excluding government holidays and weekends. 
-                      Daily wage: ₹258 per day for attendance-based calculation.
+                      Working days = Total days in month - Sundays - Admin holidays.
+                      Salaries are calculated using dynamic working days excluding weekends and admin-configured holidays.
+                      Daily wage varies by employee's base salary (baseSalary ÷ days in month).
                     </p>
                   </div>
                 </motion.div>
@@ -882,6 +887,39 @@ function AdminDashboard() {
                       Expose Selected ({selectedUsers.length})
                     </button>
                     <button
+                      onClick={async () => {
+                        if (selectedUsers.length === 0) {
+                          toast.error('Please select users to fix salary discrepancies');
+                          return;
+                        }
+
+                        try {
+                          let fixedCount = 0;
+                          for (const userId of selectedUsers) {
+                            const response = await fetch(`/api/attendance/fix-salary-discrepancy/${userId}`, {
+                              method: 'PUT',
+                              headers: {
+                                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                'Content-Type': 'application/json'
+                              }
+                            });
+                            if (response.ok) {
+                              fixedCount++;
+                            }
+                          }
+                          await fetchData();
+                          setSelectedUsers([]);
+                          toast.success(`Fixed salary discrepancies for ${fixedCount} users`);
+                        } catch (err) {
+                          toast.error('Error fixing salary discrepancies: ' + err.message);
+                        }
+                      }}
+                      disabled={selectedUsers.length === 0}
+                      className="bg-purple-500 hover:bg-purple-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors"
+                    >
+                      Fix Salary ({selectedUsers.length})
+                    </button>
+                    <button
                       onClick={handleDownload}
                       className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors"
                     >
@@ -976,7 +1014,7 @@ function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <div className="font-medium">₹{(user.dayWiseSalary || user.adjustedSalary).toLocaleString()}</div>
-                          <div className="text-xs text-gray-500">Days × ₹{user.dailyWage || 258}</div>
+                          <div className="text-xs text-gray-500">Days × ₹{user.dailyWage || Math.round((user.baseSalary || 8000) / 31)}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <div className="font-medium">₹{(user.proportionalSalary || user.adjustedSalary).toLocaleString()}</div>
@@ -1001,6 +1039,32 @@ function AdminDashboard() {
                             className="text-blue-600 hover:text-blue-900"
                           >
                             Adjust
+                          </button>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                const response = await fetch(`/api/attendance/fix-salary-discrepancy/${user._id}`, {
+                                  method: 'PUT',
+                                  headers: {
+                                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                                    'Content-Type': 'application/json'
+                                  }
+                                });
+                                const result = await response.json();
+                                if (response.ok) {
+                                  await fetchData();
+                                  toast.success(`Salary discrepancy fixed for ${user.name}`);
+                                } else {
+                                  toast.error('Error: ' + result.message);
+                                }
+                              } catch (err) {
+                                toast.error('Error: ' + err.message);
+                              }
+                            }}
+                            className="text-purple-600 hover:text-purple-900"
+                          >
+                            Fix Salary
                           </button>
                           <button
                             onClick={async (e) => {
@@ -1290,7 +1354,7 @@ function AdminDashboard() {
                 </div>
                 <p className="text-xs text-blue-700 mb-2">
                   Present days from files will be combined with {totalHolidays} holidays for salary calculation.
-                  Daily wage: ₹258 × (Present Days + Holidays)
+                  Daily wage calculated per employee: Base Salary ÷ Days in Month × (Present Days + Holidays)
                 </p>
                 {attendanceFile?.name.toLowerCase().endsWith('.pdf') && (
                   <div className="mt-2 p-2 bg-blue-100 rounded text-xs text-blue-800">

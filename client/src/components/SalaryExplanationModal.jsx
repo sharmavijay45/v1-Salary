@@ -33,7 +33,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
         hoursWorked: employee.hoursWorked,
         daysPresent: employee.daysPresent,
         monthYear: monthYear || employee.monthYear,
-        dailyWage: employee.dailyWage || 258,
+        dailyWage: employee.dailyWage || Math.round((employee.baseSalary || 8000) / 31),
         baseSalary: employee.baseSalary || 8000
       });
       setCalculationDetails(salaryDetails.calculation);
@@ -198,7 +198,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-blue-700">× Daily Wage:</span>
-                            <span className="font-medium">₹{employee?.dailyWage || 258}</span>
+                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / 31)}</span>
                           </div>
                           <div className="flex justify-between text-lg font-bold text-blue-900 bg-blue-100 p-3 rounded-lg">
                             <span>Day-wise Salary:</span>
@@ -236,7 +236,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-green-700">× Daily Wage:</span>
-                            <span className="font-medium">₹{employee?.dailyWage || 258}</span>
+                            <span className="font-medium">₹{employee?.dailyWage || Math.round((employee?.baseSalary || 8000) / 31)}</span>
                           </div>
                           <div className="flex justify-between text-lg font-bold text-green-900 bg-green-100 p-3 rounded-lg">
                             <span>Hours-based Salary:</span>
@@ -335,7 +335,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                       </div>
                       <div className="mt-4 p-3 bg-purple-100 rounded-lg">
                         <p className="text-xs text-purple-700">
-                          <strong>26-Day Cap:</strong> Both methods are capped at 26 days × ₹258 = ₹6,708 maximum salary per month.
+                          <strong>26-Day Cap Applied:</strong> Both methods are capped at 26 days × employee's daily wage. Daily wage = Base Salary ÷ Days in Month.
                           WFH days are credited 8 hours automatically in the manual attendance processing.
                         </p>
                       </div>
@@ -364,9 +364,8 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                               : 'Proportional Method'}
                           </p>
                           <p className="text-sm text-gray-600">
-                            {calculationDetails.calculationMethod === 'daily_wage'
-                              ? 'Salary = Days Worked × Daily Wage Rate'
-                              : 'Salary = Base Salary × (Days Worked / Required Days)'}
+                            Daily wage is calculated as: Employee's Base Salary ÷ Days in Current Month.
+                            Each employee has their own rate based on their individual base salary.
                           </p>
                         </div>
                       </div>
@@ -393,7 +392,7 @@ const SalaryExplanationModal = ({ isOpen, onClose, employee, monthYear }) => {
                         </div>
                         <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                           <span className="text-gray-700">4. Daily wage rate:</span>
-                          <span className="font-medium">₹{calculationDetails.dailyWage}</span>
+                          <span className="font-medium">₹{calculationDetails.dailyWage || Math.round((calculationDetails.baseSalary || 8000) / 31)}</span>
                         </div>
                         <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg border border-green-200">
                           <span className="text-gray-700 font-medium">5. Final calculated salary:</span>
