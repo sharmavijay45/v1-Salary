@@ -1,11 +1,11 @@
 import axios from 'axios';
 
-axios.defaults.baseURL = `${import.meta.env.REACT_BASE_URL}`;
+axios.defaults.baseURL = `${import.meta.env.VITE_BASE_URL}`;
 
 export const login = async (credentials) => {
   const response = await axios.post('/auth/login', credentials);
   return response.data;
-};
+};  
 
 export const checkAdminExists = async () => {
   const response = await axios.get('/auth/check-admin');
