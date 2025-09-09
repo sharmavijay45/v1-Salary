@@ -40,7 +40,7 @@ const AttendanceCalendar = ({ attendanceData, workingDaysInfo, monthYear }) => {
   };
 
   const getDayData = (date) => {
-    const dateString = date.format('YYYY-MM-DD');
+    const dateString = date.format('DD-MM-YYYY');
     
     // Find attendance record for this date
     const attendanceRecord = attendanceData?.attendanceDetails?.find(
