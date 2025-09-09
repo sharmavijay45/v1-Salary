@@ -163,11 +163,86 @@ router.post('/upload', auth, upload.fields([{ name: 'excelFile', maxCount: 1 }, 
       const hoursWithHolidays = hoursWorked + (numberOfHolidays * 8);
       const effectiveDaysWithHolidays = Math.round(((hoursWorked / 8) + numberOfHolidays) * 100) / 100;
 
-      // Link to a User by employeeId first, then by exact name (case-insensitive)
+      // Enhanced user lookup with multiple fallback strategies
       let user = await User.findOne({ employeeId, isActive: { $ne: false } });
       if (!user && employeeName) {
-        const escaped = employeeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        user = await User.findOne({ name: new RegExp(`^${escaped}$`, 'i'), isActive: { $ne: false } });
+        console.log(`🔍 Enhanced lookup for: "${employeeName}" (ID: ${employeeId})`);
+
+        const normalizedEmployeeName = employeeName.toLowerCase().trim();
+
+        // Strategy 1: Partial name matching (contains)
+        const partialMatchUsers = await User.find({
+          name: { $regex: normalizedEmployeeName, $options: 'i' },
+          isActive: { $ne: false }
+        });
+        if (partialMatchUsers.length === 1) {
+          user = partialMatchUsers[0];
+          console.log(`✅ Found by partial name match: "${employeeName}" -> "${user.name}"`);
+        }
+
+        // Strategy 2: First/last name matching
+        if (!user) {
+          const nameParts = normalizedEmployeeName.split(/\s+/);
+          for (const part of nameParts) {
+            if (part.length > 2) { // Skip very short parts
+              const partMatchUsers = await User.find({
+                name: { $regex: part, $options: 'i' },
+                isActive: { $ne: false }
+              });
+              if (partMatchUsers.length === 1) {
+                user = partMatchUsers[0];
+                console.log(`✅ Found by name part match: "${part}" -> "${user.name}"`);
+                break;
+              }
+            }
+          }
+        }
+
+        // Strategy 3: Fuzzy name matching using Levenshtein distance
+        if (!user) {
+          const allUsers = await User.find({ isActive: { $ne: false } });
+          let bestMatch = null;
+          let bestDistance = Infinity;
+
+          for (const u of allUsers) {
+            const userName = u.name.toLowerCase().trim();
+            const distance = getLevenshteinDistance(normalizedEmployeeName, userName);
+            const maxLength = Math.max(normalizedEmployeeName.length, userName.length);
+            const similarity = (maxLength - distance) / maxLength;
+
+            if (similarity >= 0.6 && distance < bestDistance) { // 60% similarity threshold
+              bestMatch = u;
+              bestDistance = distance;
+            }
+          }
+
+          if (bestMatch) {
+            user = bestMatch;
+            console.log(`✅ Found by fuzzy match (${Math.round((1 - bestDistance / Math.max(normalizedEmployeeName.length, bestMatch.name.length)) * 100)}%): "${employeeName}" -> "${user.name}"`);
+          }
+        }
+
+        // Strategy 4: EmployeeId pattern matching (if employeeId looks like it might contain the actual ID)
+        if (!user && employeeId) {
+          const normalizedEmpId = employeeId.toLowerCase().trim();
+          const allUsers = await User.find({ isActive: { $ne: false } });
+
+          for (const u of allUsers) {
+            const userEmpId = (u.employeeId || '').toLowerCase().trim();
+            // Check if employeeId contains the user ID or vice versa
+            if (userEmpId && (normalizedEmpId.includes(userEmpId) || userEmpId.includes(normalizedEmpId))) {
+              user = u;
+              console.log(`✅ Found by employeeId pattern match: "${employeeId}" -> "${u.employeeId}"`);
+              break;
+            }
+          }
+        }
+      }
+
+      if (user) {
+        console.log(`✅ Successfully linked to user: ${user.name} (${user.employeeId}) with baseSalary: ₹${user.baseSalary}`);
+      } else {
+        console.log(`❌ No user match found for: "${employeeName}" (ID: ${employeeId}), using default baseSalary: ₹8000`);
       }
 
       // Use user's baseSalary from database, fallback to default
@@ -176,7 +251,7 @@ router.post('/upload', auth, upload.fields([{ name: 'excelFile', maxCount: 1 }, 
       // Calculate daily wage based on actual days in month for proportional calculation
       const [year, month] = monthYear.split('-').map(Number);
       const daysInMonth = new Date(year, month, 0).getDate();
-      const userDailyWage = user ? (user.dailyWage || Math.round(userBaseSalary / daysInMonth)) : Math.round(userBaseSalary / daysInMonth);
+      const userDailyWage = user ?Math.round(userBaseSalary / daysInMonth): Math.round(userBaseSalary / daysInMonth);
 
       // Two salary methods with 26-day cap
       const cappedPayableDays = Math.min(payableDays, 26);
