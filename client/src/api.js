@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-axios.defaults.baseURL = 'http://localhost:5000/api';
+axios.defaults.baseURL = `${import.meta.env.REACT_BASE_URL}`;
 
 export const login = async (credentials) => {
   const response = await axios.post('/auth/login', credentials);
