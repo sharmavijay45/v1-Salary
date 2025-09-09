@@ -24,3 +24,5 @@ build/
 *.ntvs*
 *.njsproj
 *.sln
+.env
+env
